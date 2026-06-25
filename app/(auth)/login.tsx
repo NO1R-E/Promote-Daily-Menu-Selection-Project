@@ -23,8 +23,6 @@ export default function LoginScreen() {
 
     if (error) {
       Alert.alert("Login Failed", error.message);
-    } else {
-      router.replace("/(app)/(tabs)/chatbot");
     }
   };
 

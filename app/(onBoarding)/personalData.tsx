@@ -1,27 +1,25 @@
-import { supabase } from "@/src/lib/supabase";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Dropdown } from 'react-native-element-dropdown';
 import {
-  Alert,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  ScrollView, 
 } from "react-native";
+import { Dropdown } from "react-native-element-dropdown";
 
 const genderData = [
-  { label: 'Male', value: '1' },
-  { label: 'Female', value: '2' },
-  { label: 'Other', value: '3' },
+  { label: "Male", value: "1" },
+  { label: "Female", value: "2" },
+  { label: "Other", value: "3" },
 ];
 
 const exerciseData = [
-  { label: 'Low', value: '1' },
-  { label: 'Moderate', value: '2' },
-  { label: 'High', value: '3' },
+  { label: "Low", value: "1" },
+  { label: "Moderate", value: "2" },
+  { label: "High", value: "3" },
 ];
 
 export default function PersonalDataScreen() {
@@ -57,13 +55,14 @@ export default function PersonalDataScreen() {
       return;
     }*/
 
-    router.replace("/allergies");
-  }
+    
+    router.replace("/(onboarding)/allergies");
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container} bounces={false}>
       <Text style={styles.title}>Personal Data</Text>
-      
+
       <View style={styles.inputGroup}>
         <Text style={styles.label}>Gender</Text>
         <Dropdown
@@ -76,7 +75,7 @@ export default function PersonalDataScreen() {
           valueField="value"
           placeholder="Select gender"
           value={gender}
-          onChange={item => setGender(item.value)}
+          onChange={(item) => setGender(item.value)}
         />
       </View>
 
@@ -125,7 +124,7 @@ export default function PersonalDataScreen() {
           valueField="value"
           placeholder="Select intensity"
           value={intensityExercise}
-          onChange={item => setIntensityExercise(item.value)}
+          onChange={(item) => setIntensityExercise(item.value)}
         />
       </View>
 
@@ -139,7 +138,7 @@ export default function PersonalDataScreen() {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: "#F8F9FA", 
+    backgroundColor: "#F8F9FA",
     paddingHorizontal: 24,
     paddingTop: 40,
     paddingBottom: 20,
@@ -149,17 +148,17 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 24,
     color: "#1A1A1A",
-    textAlign: "left"
+    textAlign: "left",
   },
   inputGroup: {
-    marginBottom: 16, 
-    width: '100%',
+    marginBottom: 16,
+    width: "100%",
   },
   label: {
     fontSize: 14,
     fontWeight: "600",
     color: "#4A4A4A",
-    marginBottom: 6, 
+    marginBottom: 6,
   },
   input: {
     width: "100%",
@@ -175,22 +174,22 @@ const styles = StyleSheet.create({
   dropdown: {
     width: "100%",
     height: 50,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 16,
   },
   dropdownContainer: {
-    borderRadius: 10, 
+    borderRadius: 10,
   },
   placeholderStyle: {
     fontSize: 16,
-    color: '#999',
+    color: "#999",
   },
   selectedTextStyle: {
     fontSize: 16,
-    color: '#333',
+    color: "#333",
   },
   button: {
     backgroundColor: "#007AFF",
@@ -209,6 +208,6 @@ const styles = StyleSheet.create({
   btnText: {
     color: "#fff",
     fontSize: 16,
-    fontWeight: "600"
+    fontWeight: "600",
   },
 });

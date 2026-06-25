@@ -50,7 +50,6 @@ export default function RegisterScreen() {
       Alert.alert("Verification Failed", error.message);
     } else {
       Alert.alert("Success!", "Your account is verified.");
-      router.replace("/(app)/(tabs)/chatbot");
     }
   };
 

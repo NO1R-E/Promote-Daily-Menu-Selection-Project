@@ -1,62 +1,83 @@
-import { Session, User } from "@supabase/supabase-js";
+// AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-type AuthContextType = {
-  session: Session | null;
-  user: User | null;
-  profile: any | null;
-  personalData: any | null;
-  loading: boolean;
-  refreshUserData: () => Promise<void>;
-};
+import { AuthContextType } from "../types/AuthContextType";
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<any | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [personalData, setPersonalData] = useState<any | null>(null);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] =
+    useState<boolean>(false);
   const [loading, setLoading] = useState(true);
 
   const fetchExtendedUserData = async (userId: string) => {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-    const { data: metrics } = await supabase
-      .from("user_personal_data")
-      .select("*")
-      .eq("account_id", userId)
-      .single();
-    setProfile(prof);
-    setPersonalData(metrics);
+    try {
+      // Fetch profile details
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      // Fetch physical metrics/dietary limits
+      const { data: metrics } = await supabase
+        .from("personalData")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      setProfile(prof);
+      setPersonalData(metrics);
+      setHasCompletedOnboarding(!!metrics);
+    } catch (error) {
+      console.error("Error fetching extended user structures:", error);
+    }
   };
 
   const refreshUserData = async () => {
-    if (user) await fetchExtendedUserData(user.id);
+    // If we call refresh, pass the active user state context down
+    if (user) {
+      await fetchExtendedUserData(user.id);
+    } else {
+      // Fallback fallback if called prematurely during auth transition frames
+      const {
+        data: { session: activeSession },
+      } = await supabase.auth.getSession();
+      if (activeSession?.user) {
+        await fetchExtendedUserData(activeSession.user.id);
+      }
+    }
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchExtendedUserData(session.user.id);
-      setLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Check initial active token traces on app boot
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchExtendedUserData(session.user.id);
+        await fetchExtendedUserData(session.user.id);
+      }
+      setLoading(false);
+    });
+
+    // Listen to live system broadcasts (Login, Register, Sign Out)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      if (session?.user) {
+        await fetchExtendedUserData(session.user.id);
       } else {
+        // Clear all cached identities cleanly upon logging out
         setProfile(null);
         setPersonalData(null);
+        setHasCompletedOnboarding(false);
       }
       setLoading(false);
     });
@@ -66,7 +87,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ session, user, profile, personalData, loading, refreshUserData }}
+      value={{
+        session,
+        user,
+        profile,
+        personalData,
+        loading,
+        hasCompletedOnboarding,
+        refreshUserData,
+      }}
     >
       {children}
     </AuthContext.Provider>

@@ -9,7 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ScrollView, 
+  ScrollView,
 } from "react-native";
 
 const genderData = [
@@ -57,13 +57,22 @@ export default function PersonalDataScreen() {
       return;
     }*/
 
-    router.replace("/allergies");
+    router.push({
+      pathname: "/allergies",
+      params: {
+        gender,
+        age,
+        height,
+        weight,
+        intensityExercise
+      }
+    });
   }
 
   return (
     <ScrollView contentContainerStyle={styles.container} bounces={false}>
       <Text style={styles.title}>Personal Data</Text>
-      
+
       <View style={styles.inputGroup}>
         <Text style={styles.label}>Gender</Text>
         <Dropdown
@@ -139,7 +148,7 @@ export default function PersonalDataScreen() {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: "#F8F9FA", 
+    backgroundColor: "#F8F9FA",
     paddingHorizontal: 24,
     paddingTop: 40,
     paddingBottom: 20,
@@ -152,14 +161,14 @@ const styles = StyleSheet.create({
     textAlign: "left"
   },
   inputGroup: {
-    marginBottom: 16, 
+    marginBottom: 16,
     width: '100%',
   },
   label: {
     fontSize: 14,
     fontWeight: "600",
     color: "#4A4A4A",
-    marginBottom: 6, 
+    marginBottom: 6,
   },
   input: {
     width: "100%",
@@ -182,7 +191,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   dropdownContainer: {
-    borderRadius: 10, 
+    borderRadius: 10,
   },
   placeholderStyle: {
     fontSize: 16,

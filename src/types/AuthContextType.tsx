@@ -6,6 +6,6 @@ export type AuthContextType = {
   profile: any | null;
   personalData: any | null;
   loading: boolean;
-  hasCompletedOnboarding: boolean; // 👈 Added tracking flag
+  hasCompletedOnboarding: boolean;
   refreshUserData: () => Promise<void>;
 };

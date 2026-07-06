@@ -17,7 +17,8 @@ function NavigationGate() {
       router.replace("/(auth)/login");
     } else if (user && !hasCompletedOnboarding) {
       // Logged in but missing physical metrics/allergies? Route them to onboarding
-      router.replace("/(onboarding)/personalData");
+      router.replace("/(app)/(tabs)/chatbot");
+      // router.replace("/(onboarding)/personalData");
     } else {
       // Fully logged in and profile setup complete? Straight to the core app
       router.replace("/(app)/(tabs)/chatbot");

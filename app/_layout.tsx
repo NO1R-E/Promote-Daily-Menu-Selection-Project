@@ -4,28 +4,23 @@ import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 function NavigationGate() {
-  const { user, loading, hasCompletedOnboarding } = useAuth();
+  const { user, loading, hasCompletedOnboarding, isAdmin } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // 1. If Supabase is still loading or checking local storage, do nothing yet
     if (loading) return;
-
-    // 2. Traffic Controller Logic
     if (!user) {
-      // Not logged in? Force them to the authentication screens (login/register)
       router.replace("/(auth)/login");
+    } else if (isAdmin) {
+      router.replace("/(admin)/tempScreen");
     } else if (user && !hasCompletedOnboarding) {
-      // Logged in but missing physical metrics/allergies? Route them to onboarding
       router.replace("/(app)/(tabs)/chatbot");
       // router.replace("/(onboarding)/personalData");
     } else {
-      // Fully logged in and profile setup complete? Straight to the core app
       router.replace("/(app)/(tabs)/chatbot");
     }
   }, [user, loading, hasCompletedOnboarding]);
 
-  // Display a clean loading indicator while checking auth states
   if (loading) {
     return (
       <View

@@ -1,11 +1,6 @@
-import { Session, User } from "@supabase/supabase-js";
+import { AuthState } from "./AuthState";
 
-export type AuthContextType = {
-  session: Session | null;
-  user: User | null;
-  profile: any | null;
-  personalData: any | null;
-  loading: boolean;
-  hasCompletedOnboarding: boolean;
+export type AuthContextType = AuthState & {
+  isAdmin: boolean;
   refreshUserData: () => Promise<void>;
 };

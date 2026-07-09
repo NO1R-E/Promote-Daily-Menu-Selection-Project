@@ -2,27 +2,35 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { AuthContextType } from "../types/AuthContextType";
+import { AuthState } from "../types/AuthState";
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [session, setSession] = useState<any | null>(null);
-  const [user, setUser] = useState<any | null>(null);
-  const [profile, setProfile] = useState<any | null>(null);
-  const [personalData, setPersonalData] = useState<any | null>(null);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] =
-    useState<boolean>(false);
-  const [loading, setLoading] = useState(true);
+  // 2. Group all variables into a single unified state block
+  const [state, setState] = useState<AuthState>({
+    session: null,
+    user: null,
+    profile: null,
+    personalData: null,
+    hasCompletedOnboarding: false,
+    loading: true,
+  });
 
-  const fetchExtendedUserData = async (userId: string) => {
+  const fetchExtendedUserData = async (userId: string, activeSession: any) => {
     try {
-      // Fetch profile details
-      const { data: prof } = await supabase
+      // Fetch profile details matching your custom profile_id layout
+
+      const { data: prof, error: profError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", userId)
+        .eq("profile_id", userId) // Clean any hidden spaces or type wrappers
         .single();
 
+      if (profError) {
+        console.log("Postgres Query Error Code:", profError.code);
+        console.log("Postgres Query Error Message:", profError.message);
+      }
       // Fetch physical metrics/dietary limits
       const { data: metrics } = await supabase
         .from("personalData")
@@ -30,25 +38,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .eq("user_id", userId)
         .maybeSingle();
 
-      setProfile(prof);
-      setPersonalData(metrics);
-      setHasCompletedOnboarding(!!metrics);
+      // 3. Atomically update all entities simultaneously
+      setState({
+        session: activeSession,
+        user: activeSession?.user ?? null,
+        profile: prof,
+        personalData: metrics,
+        hasCompletedOnboarding: !!metrics,
+        loading: false,
+      });
     } catch (error) {
       console.error("Error fetching extended user structures:", error);
+      setState((prev) => ({ ...prev, loading: false }));
     }
   };
 
   const refreshUserData = async () => {
-    // If we call refresh, pass the active user state context down
-    if (user) {
-      await fetchExtendedUserData(user.id);
+    if (state.user) {
+      await fetchExtendedUserData(state.user.id, state.session);
     } else {
-      // Fallback fallback if called prematurely during auth transition frames
       const {
         data: { session: activeSession },
       } = await supabase.auth.getSession();
       if (activeSession?.user) {
-        await fetchExtendedUserData(activeSession.user.id);
+        await fetchExtendedUserData(activeSession.user.id, activeSession);
       }
     }
   };
@@ -56,44 +69,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     // Check initial active token traces on app boot
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchExtendedUserData(session.user.id);
+        await fetchExtendedUserData(session.user.id, session);
+      } else {
+        setState((prev) => ({ ...prev, loading: false }));
       }
-      setLoading(false);
     });
 
     // Listen to live system broadcasts (Login, Register, Sign Out)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-
       if (session?.user) {
-        await fetchExtendedUserData(session.user.id);
+        await fetchExtendedUserData(session.user.id, session);
       } else {
-        // Clear all cached identities cleanly upon logging out
-        setProfile(null);
-        setPersonalData(null);
-        setHasCompletedOnboarding(false);
+        // Clear all cached identities cleanly upon logging out in one pass
+        setState({
+          session: null,
+          user: null,
+          profile: null,
+          personalData: null,
+          hasCompletedOnboarding: false,
+          loading: false,
+        });
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  //console.log(state.session?.user.id);
+  //console.log(state.profile);
+  // 4. Derive administrative capabilities instantly from the grouped payload state
+  const isAdmin = state.profile?.role === "admin";
+
   return (
     <AuthContext.Provider
       value={{
-        session,
-        user,
-        profile,
-        personalData,
-        loading,
-        hasCompletedOnboarding,
+        ...state,
+        isAdmin,
         refreshUserData,
       }}
     >

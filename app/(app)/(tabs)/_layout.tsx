@@ -8,7 +8,9 @@ export default function TabsLayout() {
         name="forum"
         options={{ title: "Forum", headerShown: false }}
       />
-      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      <Tabs.Screen 
+        name="record" 
+        options={{ title: "Record", headerShown: false }} />
       <Tabs.Screen
         name="setting"
         options={{ title: "Setting", headerShown: false }}

@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "expo-router";
-import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/lib/supabase"; // 👈 นำเข้า Supabase
-import { useAuth } from "@/src/contexts/AuthContext"; // 👈 นำเข้า Auth สำหรับเอา user.id
+import { supabase } from "@/src/lib/supabase";
+import { useAuth } from "@/src/contexts/AuthContext";
 import { useFocusEffect } from "expo-router";
+import { Calendar } from "react-native-calendars";
 
-// กำหนดเป้าหมายสารอาหารแต่ละวัน (สำหรับใช้เป็นตัวหารในแถบสถิติ)
+// กำหนดเป้าหมายสารอาหารแต่ละวัน
 const TARGETS = { calories: 2000, fat: 65, protein: 60, carbs: 300, sugar: 50, sodium: 2000 };
 
 export default function TrackingRecordScreen() {
@@ -15,14 +16,34 @@ export default function TrackingRecordScreen() {
 
   const [items, setItems] = useState<any[]>([]); // State เก็บข้อมูลจริง
   const [loading, setLoading] = useState(true);
-  const selectedDate = new Date().toISOString().split("T")[0];
+
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
+  const [isCalendarVisible, setIsCalendarVisible] = useState(false);
+
+  // ฟังก์ชันเปลี่ยนวัน
+  const changeDate = (daysToShift: number) => {
+    const current = new Date(selectedDate);
+    current.setDate(current.getDate() + daysToShift); // คำนวณวันใหม่ที่กำลังจะเปลี่ยนไป
+
+    const formattedDate = current.toISOString().split("T")[0];
+    const todayStr = new Date().toISOString().split("T")[0]; // วันที่ของวันนี้ปัจจุบัน
+
+    // เช็กเงื่อนไข: ถ้าผู้ใช้พยายามจะเปลี่ยนวันไปข้างหน้า (daysToShift > 0) 
+    // และถ้าวันใหม่นั้น "เกินกว่าวันนี้" (formattedDate > todayStr) ให้บล็อกไว้ ไม่ให้เปลี่ยนวัน
+    if (daysToShift > 0 && formattedDate > todayStr) {
+      return;
+    }
+    setSelectedDate(formattedDate); // ถ้าผ่านเงื่อนไข (เป็นอดีตหรือวันนี้) ก็อัปเดตวันตามปกติ
+  };
 
   const fetchDailyRecords = async () => {
     if (!user) return;
     try {
       setLoading(true);
 
-      // ดึงข้อมูลเชื่อมตาราง daily_record -> record_item -> recipes (ไม่มี s แล้ว)
+      // ดึงข้อมูลเชื่อมตาราง daily_record -> record_item -> recipes -> recipe_nutrient
       const { data, error } = await supabase
         .from("daily_record")
         .select(`
@@ -64,7 +85,7 @@ export default function TrackingRecordScreen() {
       fetchDailyRecords();
     }, [user, selectedDate])
   );
-
+  // ฟังก์ชันช่วยดึงค่าของสารอาหารจาก recipe_nutrient โดยตรวจสอบว่ามีข้อมูลไหม
   const getNutrientValue = (recipeObj: any, key: string) => {
     if (!recipeObj?.recipe_nutrient) return 0;
     if (Array.isArray(recipeObj.recipe_nutrient)) {
@@ -72,7 +93,7 @@ export default function TrackingRecordScreen() {
     }
     return Number(recipeObj.recipe_nutrient?.[key] || 0);
   };
-
+  // คำนวณผลรวมของสารอาหารทั้งหมดในแต่ละวัน
   const totalCalories = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "calories"), 0);
   const totalFat = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "fat"), 0);
   const totalProtein = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "protein"), 0);
@@ -80,7 +101,7 @@ export default function TrackingRecordScreen() {
   const totalSugar = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "sugar"), 0);
   const totalSodium = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "sodium"), 0);
 
-  // 3. กรองข้อมูลเพื่อเช็กและแสดงผลในแต่ละช่องมื้ออาหาร
+  // กรองข้อมูลเพื่อเช็กและแสดงผลในแต่ละช่องมื้ออาหาร
   const breakfast = items.find(i => i.meal_type === "breakfast");
   const lunch = items.find(i => i.meal_type === "lunch");
   const dinner = items.find(i => i.meal_type === "dinner");
@@ -107,48 +128,54 @@ export default function TrackingRecordScreen() {
     <View style={styles.mainContainer}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* ─── ส่วนที่ 1: Header ตัวสลับวันที่ ─── */}
+        {/* ส่วนที่ 1: Header ตัวสลับวันที่ */}
         <View style={styles.dateHeader}>
-          <TouchableOpacity style={styles.arrowBtn}>
-            <Ionicons name="chevron-back" size={20} color="#1A1A1A" />
-          </TouchableOpacity>
-          <View style={styles.dateDropdown}>
-            <Text style={styles.dateText}>July</Text>
-            <Ionicons name="caret-down" size={12} color="#007AFF" style={{ marginLeft: 4 }} />
+          <View style={styles.datePickerContainer}>
+            {/* ปุ่มถอยหลัง 1 วัน */}
+            <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(-1)}>
+              <Ionicons name="chevron-back" size={24} color="#007AFF" />
+            </TouchableOpacity>
+
+            {/* ปุ่มตรงกลาง: กดเพื่อเปิดปฏิทินเลือกวัน */}
+            <TouchableOpacity
+              style={styles.dateSelectButton}
+              onPress={() => setIsCalendarVisible(true)}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#007AFF" style={{ marginRight: 6 }} />
+              <Text style={styles.dateDisplayTitle}>
+                {selectedDate === new Date().toISOString().split("T")[0] ? "Today " : ""}
+                ({selectedDate})
+              </Text>
+            </TouchableOpacity>
+
+            {/* ปุ่มเดินหน้า 1 วัน */}
+            <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(1)}>
+              <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconRight}>
+              <Ionicons name="menu-outline" size={24} color="#1A1A1A" />
+            </TouchableOpacity>
           </View>
-          <View style={styles.dateDropdown}>
-            <Text style={styles.dateText}>8</Text>
-            <Ionicons name="caret-down" size={12} color="#007AFF" style={{ marginLeft: 4 }} />
-          </View>
-          <TouchableOpacity style={styles.arrowBtn}>
-            <Ionicons name="chevron-forward" size={20} color="#1A1A1A" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconRight}>
-            <Ionicons name="calendar-outline" size={22} color="#1A1A1A" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconRight}>
-            <Ionicons name="menu-outline" size={24} color="#1A1A1A" />
-          </TouchableOpacity>
         </View>
 
-        {/* ─── ส่วนที่ 2: Dashboard บน (Calorie & On Time) ─── */}
+        {/* ส่วนที่ 2: Dashboard (Calories & On Time) */}
         <View style={styles.topDashboard}>
 
-          {/* การ์ดฝั่งซ้าย: วงกลมแคลอรี */}
+          {/* ฝั่งซ้าย: calories */}
           <View style={styles.calorieCard}>
-            <Text style={styles.cardTitle}>Calorie</Text>
+            <Text style={styles.cardTitle}>Calories</Text>
             <View style={styles.circleOutline}>
-              {/* ตัวเลขจะบวกรวมอัปเดตให้เองตรงนี้ */}
               <Text style={styles.circleNumber}>{totalCalories}</Text>
               <Text style={styles.circleUnit}>kcal</Text>
             </View>
           </View>
 
-          {/* การ์ดฝั่งขวา: รายการมื้ออาหารล็อกช่องประจำเวลา */}
+          {/* ฝั่งขวา: On Time */}
           <View style={styles.onTimeCard}>
             <Text style={styles.cardTitle}>On Time</Text>
 
-            {/* 🥞 มื้อเช้า: เปลี่ยนเป็นปุ่มกด */}
+            {/* breakfast */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("breakfast")}>
               <Image source={{ uri: breakfast ? breakfast.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
@@ -157,11 +184,11 @@ export default function TrackingRecordScreen() {
               {breakfast ? (
                 <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
               ) : (
-                <Ionicons name="add" size={18} color="#007AFF" /> // ➕ เปลี่ยนเป็นไอคอนบวกถ้ายังไม่มีอาหาร
+                <Ionicons name="add" size={18} color="#007AFF" /> // เปลี่ยนเป็นไอคอน + ถ้ายังไม่ได้เลือกเมนูอาหาร
               )}
             </TouchableOpacity>
 
-            {/* 🍛 มื้อกลางวัน: เปลี่ยนเป็นปุ่มกด */}
+            {/* lunch */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("lunch")}>
               <Image source={{ uri: lunch ? lunch.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
@@ -174,7 +201,7 @@ export default function TrackingRecordScreen() {
               )}
             </TouchableOpacity>
 
-            {/* 🍲 มื้อเย็น: เปลี่ยนเป็นปุ่มกด */}
+            {/* dinner */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("dinner")}>
               <Image source={{ uri: dinner ? dinner.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
@@ -189,7 +216,7 @@ export default function TrackingRecordScreen() {
           </View>
         </View>
 
-        {/* ─── ส่วนที่ 3: แถบสีรายงานสารอาหารย่อย (Macro Lists) ─── */}
+        {/* ส่วนที่ 3: แถบแสดง nutrient */}
         <View style={styles.macroSection}>
 
           {/* แถบ Fat (สีดำ) */}
@@ -237,6 +264,50 @@ export default function TrackingRecordScreen() {
         </View>
 
         <View style={{ height: 100 }} />
+        {/* ส่วนที่ 4: ปฏิทินเลือกวัน */}
+        <Modal
+          visible={isCalendarVisible}
+          transparent={true} // ทำให้พื้นหลังโปร่งแสงเห็นหน้าเดิมลางๆ
+          animationType="fade" // แอนิเมชันตอนเปิดค่อยๆ โผล่ขึ้นมา
+          onRequestClose={() => setIsCalendarVisible(false)}
+        >
+          {/* พื้นหลังสีคล้ำๆ ลางๆ พอกดที่พื้นหลังจะปิดหน้าต่างได้ */}
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setIsCalendarVisible(false)}
+          >
+            {/* กล่องสีขาวแสดงตัวปฏิทินตรงกลางจอ */}
+            <View style={styles.calendarCard}>
+              <Text style={styles.calendarModalTitle}>Select Date</Text>
+
+              <Calendar
+                current={selectedDate} // เดือนเริ่มต้นจะอิงจากวันที่เรากำลังดูอยู่
+                maxDate={new Date().toISOString().split("T")[0]} // 🔒 ตัวเลือกเสริม: ห้ามเลือกวันอนาคต (ถ้าต้องการ)
+                onDayPress={(day) => {
+                  setSelectedDate(day.dateString); // อัปเดตวันที่แอปเป็นวันที่เรากดจิ้ม
+                  setIsCalendarVisible(false); // จิ้มเสร็จสั่งปิดหน้าต่างทันที
+                }}
+                markedDates={{
+                  [selectedDate]: { selected: true, selectedColor: "#007AFF", selectedTextColor: "white" }
+                }}
+                theme={{
+                  todayTextColor: "#007AFF",
+                  arrowColor: "#007AFF",
+                  textDayFontWeight: "500",
+                }}
+              />
+
+              {/* ปุ่มกดปิดปฏิทิน */}
+              <TouchableOpacity
+                style={styles.closeCalendarBtn}
+                onPress={() => setIsCalendarVisible(false)}
+              >
+                <Text style={styles.closeCalendarText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </ScrollView>
     </View>
   );
@@ -247,7 +318,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
 
   // Header Zone
-  dateHeader: { flexDirection: "row", alignItems: "center", marginTop: 50, marginBottom: 25 },
+  dateHeader: { flexDirection: "row", alignItems: "center", marginTop: 25, marginBottom: 25 },
   arrowBtn: { backgroundColor: "#F2F2F7", width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center" },
   dateDropdown: { flexDirection: "row", alignItems: "center", backgroundColor: "#F2F2F7", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginLeft: 8 },
   dateText: { fontSize: 16, fontWeight: "bold", color: "#1A1A1A" },
@@ -276,5 +347,67 @@ const styles = StyleSheet.create({
   macroRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderColor: "#F2F2F7" },
   colorDot: { width: 14, height: 14, borderRadius: 7, marginRight: 15 },
   macroLabel: { fontSize: 16, fontWeight: "600", color: "#1A1A1A", flex: 1 },
-  macroValue: { fontSize: 16, color: "#666", fontWeight: "500" }
+  macroValue: { fontSize: 16, color: "#666", fontWeight: "500" },
+  datePickerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F2F2F7",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 15,
+    marginHorizontal: 20,
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  arrowButton: {
+    padding: 5,
+  },
+  dateDisplayTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dateSelectButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)", // สีดำจางๆ บดบังด้านหลัง
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  calendarCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    width: "85%", // จัดขนาดกล่องให้พอดีสายตา
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 5, // แสงเงาสำหรับ Android
+  },
+  calendarModalTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  closeCalendarBtn: {
+    marginTop: 15,
+    paddingVertical: 12,
+    backgroundColor: "#F2F2F7",
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  closeCalendarText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FF3B30", // สีแดงสำหรับปุ่มยกเลิก/ปิด
+  },
 });

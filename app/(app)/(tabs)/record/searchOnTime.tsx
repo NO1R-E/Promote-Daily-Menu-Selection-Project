@@ -10,12 +10,12 @@ export default function FoodSearchScreen() {
   const { user } = useAuth();
   const { meal_type, selected_date } = useLocalSearchParams<{ meal_type: string; selected_date: string }>();
 
-  // 🌟 1. สร้าง State สำหรับเก็บรายชื่ออาหารที่ดึงมาจากฐานข้อมูลจริง
+  // สร้าง State สำหรับเก็บรายชื่ออาหารที่ดึงมาจากฐานข้อมูลจริง
   const [recipes, setRecipes] = useState<any[]>([]);
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 🌟 2. ใช้ useEffect ดึงเมนูอาหารมาจาก Supabase ทันทีที่เปิดหน้านี้
+  // ใช้ useEffect ดึงเมนูอาหารมาจาก Supabase ทันทีที่เปิดหน้านี้
   useEffect(() => {
     async function fetchRecipesFromDB() {
       try {
@@ -44,6 +44,7 @@ export default function FoodSearchScreen() {
     fetchRecipesFromDB();
   }, []);
 
+  // ฟังก์ชันสำหรับบันทึกอาหารที่ผู้ใช้เลือกลงในตาราง record_item
   const handleSelectFood = async (recipeId: number, recipeName: string) => {
     if (!user) {
       Alert.alert("ข้อผิดพลาด", "ไม่พบข้อมูลผู้ใช้งาน");
@@ -104,10 +105,10 @@ export default function FoodSearchScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        {/*<TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>เลือกอาหารสำหรับมื้อ {meal_type}</Text>
+        </TouchableOpacity>*/}
+        <Text style={styles.headerTitle}>Select a menu at {meal_type}</Text>
       </View>
 
       {isLoadingRecipes || isSubmitting ? (
@@ -150,7 +151,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF", paddingHorizontal: 20 },
   header: { flexDirection: "row", alignItems: "center", marginTop: 50, marginBottom: 20 },
   backBtn: { marginRight: 15, padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: "bold", color: "#1A1A1A", textTransform: "capitalize" },
+  headerTitle: { fontSize: 18, fontWeight: "bold", color: "#1A1A1A" },
   foodCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#F8F9FA", padding: 12, borderRadius: 16, marginBottom: 12 },
   foodImage: { width: 60, height: 60, borderRadius: 12, marginRight: 15 },
   foodInfo: { flex: 1 },

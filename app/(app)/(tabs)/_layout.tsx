@@ -12,8 +12,8 @@ export default function TabsLayout() {
         name="record" 
         options={{ title: "Record", headerShown: false }} />
       <Tabs.Screen
-        name="setting"
-        options={{ title: "Setting", headerShown: false }}
+        name="profile"
+        options={{ title: "Profile", headerShown: false }}
       />
     </Tabs>
   );

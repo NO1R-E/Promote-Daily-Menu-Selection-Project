@@ -152,11 +152,15 @@ export default function TrackingRecordScreen() {
             <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(1)}>
               <Ionicons name="chevron-forward" size={24} color="#007AFF" />
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.iconRight}>
-              <Ionicons name="menu-outline" size={24} color="#1A1A1A" />
-            </TouchableOpacity>
           </View>
+
+          {/* ปุ่มขีด 3 ขีดด้านขวาสุด: กดแล้วลิงก์ไปหน้ากราฟสถิติ */}
+          <TouchableOpacity
+            style={styles.hamburgerButton}
+            onPress={() => router.push("/(app)/(tabs)/record/chart")} // 👈 เปลี่ยนเส้นทางไปไฟล์ chart.tsx
+          >
+            <Ionicons name="menu-outline" size={28} color="#333333" />
+          </TouchableOpacity>
         </View>
 
         {/* ส่วนที่ 2: Dashboard (Calories & On Time) */}
@@ -356,7 +360,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 15,
-    marginHorizontal: 20,
+    flex: 1,
     marginTop: 15,
     marginBottom: 10,
   },
@@ -409,5 +413,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#FF3B30", // สีแดงสำหรับปุ่มยกเลิก/ปิด
+  },
+  hamburgerButton: {
+    backgroundColor: "#F2F2F7",
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 10,
+    marginTop: 5,
   },
 });

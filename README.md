@@ -1,5 +1,5 @@
 # Promote Daily Menu Selection Project
-This project is part of a Project Management and Digital Startup (01418371)
+This project is part of Computer Science Project (Final Project) (01418499)
 
 A cross-platform mobile application that provides personalized meal recommendations.
 The system is designed to solve dietary decision fatigue by algorithmically balancing a user's macronutrient/micronutrient requirements with their taste preferences.

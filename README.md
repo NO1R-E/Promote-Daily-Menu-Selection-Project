@@ -12,27 +12,20 @@ AI Integration: Chatbot interface for nutritional queries and ingredient substit
 Community System: Supports user-generated recipes, meal ratings, and forum interactions.
 
 ## Tech Stack & Architecture
-__Frontend__
-
+__Frontend__  
 React Native & Expo: Cross-platform mobile client for iOS and Android.
 
-__Backend & API__
-
-Python: Core logic and algorithmic calculations for the recommendation engine.
-
+__Backend & API__  
+Python: Core logic and algorithmic calculations for the recommendation engine.  
 FastAPI: High-performance RESTful API infrastructure.
 
-__Database & Authentication__
-
-PostgreSQL: Relational database managing 22+ tables (users, meals, logs, community interactions).
-
+__Database & Authentication__  
+PostgreSQL: Relational database managing 22+ tables (users, meals, logs, community interactions).  
 Supabase: Backend-as-a-service for PostgreSQL hosting, real-time data sync, and secure authentication.
 
-__Deployment__
-
+__Deployment__  
 Render: Cloud hosting for FastAPI backend services.
 
 ## Solving
-Cold Start Problem is one of the challenges of building recommendation system, so we use ELIXIR algorithm instead
-
+Cold Start Problem is one of the challenges of building recommendation system, so we use ELIXIR algorithm instead  
 __Result__: The system provides health-optimized meal recommendations immediately upon account creation.

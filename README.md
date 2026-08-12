@@ -5,11 +5,11 @@ A cross-platform mobile application that provides personalized meal recommendati
 The system is designed to solve dietary decision fatigue by algorithmically balancing a user's macronutrient/micronutrient requirements with their taste preferences.
 
 ## Core functions
-User Profiling: Captures physical metrics, dietary goals (e.g., weight loss, hypertrophy), allergies, and taste preferences.
-Meal Tracking: Calculates daily macronutrient and micronutrient consumption against target baselines.
-Algorithmic Recommendations: Recommends meals based on remaining daily nutritional allowance and historical preference data.
-AI Integration: Chatbot interface for nutritional queries and ingredient substitutions.
-Community System: Supports user-generated recipes, meal ratings, and forum interactions.
+User Profiling: Captures physical metrics, dietary goals (e.g., weight loss, hypertrophy), allergies, and taste preferences.  
+Meal Tracking: Calculates daily macronutrient and micronutrient consumption against target baselines.  
+Algorithmic Recommendations: Recommends meals based on remaining daily nutritional allowance and historical preference data.  
+AI Integration: Chatbot interface for nutritional queries and ingredient substitutions.  
+Community System: Supports user-generated recipes, meal ratings, and forum interactions.  
 
 ## Tech Stack & Architecture
 __Frontend__  

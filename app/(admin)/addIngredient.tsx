@@ -1,8 +1,16 @@
-import { useState } from "react";
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, ActivityIndicator, Alert, SafeAreaView } from "react-native";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function AddIngredientScreen() {
   const router = useRouter();
@@ -36,30 +44,32 @@ export default function AddIngredientScreen() {
       const nextId = lastIngredient ? lastIngredient.id + 1 : 1782;
 
       // 2. Insert ข้อมูลวัตถุดิบใหม่เข้าฐานข้อมูล
-      const { error: insertError } = await supabase
-        .from("ingredients")
-        .insert([
-          {
-            id: nextId, // 💡 หากฐานข้อมูลตั้งเป็น Auto-increment อยู่แล้ว สามารถลบบรรทัดนี้ออกได้เลยครับ
-            norm_en: normEn.trim(),
-            norm_th: normTh.trim(),
-          },
-        ]);
+      const { error: insertError } = await supabase.from("ingredients").insert([
+        {
+          id: nextId, // 💡 หากฐานข้อมูลตั้งเป็น Auto-increment อยู่แล้ว สามารถลบบรรทัดนี้ออกได้เลยครับ
+          norm_en: normEn.trim(),
+          norm_th: normTh.trim(),
+        },
+      ]);
 
       if (insertError) throw insertError;
 
-      Alert.alert("สำเร็จ", `เพิ่มวัตถุดิบ ${normTh} เรียบร้อยแล้ว (ID: ${nextId})`, [
-        {
-          text: "ตกลง",
-          onPress: () => {
-            // เคลียร์ค่าในฟอร์ม
-            setNormEn("");
-            setNormTh("");
-            // ย้อนกลับไปหน้าก่อนหน้า
-            router.back();
+      Alert.alert(
+        "สำเร็จ",
+        `เพิ่มวัตถุดิบ ${normTh} เรียบร้อยแล้ว (ID: ${nextId})`,
+        [
+          {
+            text: "ตกลง",
+            onPress: () => {
+              // เคลียร์ค่าในฟอร์ม
+              setNormEn("");
+              setNormTh("");
+              // ย้อนกลับไปหน้าก่อนหน้า
+              router.back();
+            },
           },
-        },
-      ]);
+        ],
+      );
     } catch (error: any) {
       console.error("Error adding ingredient:", error.message);
       Alert.alert("Error", "ไม่สามารถเพิ่มวัตถุดิบได้: " + error.message);
@@ -76,7 +86,7 @@ export default function AddIngredientScreen() {
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>*/}
         <Text style={styles.headerTitle}>Add Ingredient</Text>
-        <View style={{ width: 24 }} /> 
+        <View style={{ width: 24 }} />
       </View>
 
       {/* Form Content */}
@@ -110,7 +120,12 @@ export default function AddIngredientScreen() {
             <ActivityIndicator color="#FFF" />
           ) : (
             <>
-              <Ionicons name="save-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Ionicons
+                name="save-outline"
+                size={20}
+                color="#FFF"
+                style={{ marginRight: 8 }}
+              />
               <Text style={styles.saveButtonText}>Save Ingredient</Text>
             </>
           )}
@@ -135,7 +150,13 @@ const styles = StyleSheet.create({
   backButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: "bold", color: "#333" },
   formContainer: { padding: 20, marginTop: 10 },
-  label: { fontSize: 14, fontWeight: "600", color: "#3A3A3C", marginBottom: 8, marginLeft: 4 },
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3A3A3C",
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   input: {
     width: "100%",
     height: 48,

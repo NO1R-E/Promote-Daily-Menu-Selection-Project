@@ -72,17 +72,7 @@ export default function MyAccountScreen() {
                     <View style={styles.infoRow}>
                         <Text style={styles.infoLabel}>Email</Text>
                         <Text style={styles.infoValue}>{user?.email || "No Email Found"}</Text>
-                    </View>
-
-                    <View style={styles.divider} />
-
-                    {/* ส่วนแสดง Role จากตาราง profiles */}
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Role</Text>
-                        <Text style={[styles.infoValue, styles.roleBadge]}>
-                            {role.toUpperCase()}
-                        </Text>
-                    </View>
+                    </View>      
                 </View>
 
                 {/* ส่วนตั้งค่าความปลอดภัย */}
@@ -136,7 +126,7 @@ const styles = StyleSheet.create({
     contentContainer: { padding: 20 },
     sectionTitle: { fontSize: 14, fontWeight: "600", color: "#8E8E93", textTransform: "uppercase", marginBottom: 10, marginTop: 15, paddingLeft: 5 },
 
-    // สไตล์กล่องข้อมูล Email และ Role
+    // สไตล์กล่องข้อมูล Email
     infoBox: {
         backgroundColor: "#FFFFFF",
         borderRadius: 16,
@@ -166,8 +156,6 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         overflow: "hidden",
     },
-    divider: { height: 1, backgroundColor: "#E5E5EA" },
-
     // สไตล์ปุ่ม Action ต่างๆ (รหัสผ่าน และ ลบบัญชี)
     actionButton: {
         flexDirection: "row",

@@ -10,6 +10,51 @@ import { Calendar } from "react-native-calendars";
 // กำหนดเป้าหมายสารอาหารแต่ละวัน
 const TARGETS = { calories: 2000, fat: 65, protein: 60, carbs: 300, sugar: 50, sodium: 2000 };
 
+// 1. ฟังก์ชันคำนวณสารอาหารจากวัตถุดิบ
+const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: number = 1) => {
+  const summary = { calories: 0, fat: 0, protein: 0, carbs: 0, sugar: 0, sodium: 0 };
+
+  // ป้องกันกรณี serving เป็น 0 หรือ null
+  const safeServings = servingsCount > 0 ? servingsCount : 1;
+
+  // วนลูปผ่านวัตถุดิบแต่ละตัวของสูตรอาหาร
+  recipeIngredients?.forEach((ri) => {
+    const weightG = ri.weight_g || 0;
+    const ingredientNutrients = ri.ingredients?.ingredient_nutrients || [];
+
+    // วนลูปผ่านสารอาหารแต่ละตัวของวัตถุดิบ
+    ingredientNutrients.forEach((item: any) => {
+      const name = item.nutrients?.nutrient_name?.toLowerCase() || "";
+      const baseAmount = item.amount || 0;
+
+      const calculatedAmount = (weightG / 100) * baseAmount;
+
+      if (name.includes("calorie") || name.includes("energy")) {
+        summary.calories += calculatedAmount;
+      } else if (name.includes("fat")) {
+        summary.fat += calculatedAmount;
+      } else if (name.includes("protein")) {
+        summary.protein += calculatedAmount;
+      } else if (name.includes("carb")) {
+        summary.carbs += calculatedAmount;
+      } else if (name.includes("sugar")) {
+        summary.sugar += calculatedAmount;
+      } else if (name.includes("sodium")) {
+        summary.sodium += calculatedAmount;
+      }
+    });
+  });
+
+  return {
+    calories: summary.calories / safeServings,
+    fat: summary.fat / safeServings,
+    protein: summary.protein / safeServings,
+    carbs: summary.carbs / safeServings,
+    sugar: summary.sugar / safeServings,
+    sodium: summary.sodium / safeServings,
+  };
+};
+
 export default function TrackingRecordScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -25,83 +70,97 @@ export default function TrackingRecordScreen() {
   // ฟังก์ชันเปลี่ยนวัน
   const changeDate = (daysToShift: number) => {
     const current = new Date(selectedDate);
-    current.setDate(current.getDate() + daysToShift); // คำนวณวันใหม่ที่กำลังจะเปลี่ยนไป
-
+    current.setDate(current.getDate() + daysToShift);
+    // ป้องกันไม่ให้เลือกวันในอนาคต
     const formattedDate = current.toISOString().split("T")[0];
-    const todayStr = new Date().toISOString().split("T")[0]; // วันที่ของวันนี้ปัจจุบัน
+    const todayStr = new Date().toISOString().split("T")[0];
 
-    // เช็กเงื่อนไข: ถ้าผู้ใช้พยายามจะเปลี่ยนวันไปข้างหน้า (daysToShift > 0) 
-    // และถ้าวันใหม่นั้น "เกินกว่าวันนี้" (formattedDate > todayStr) ให้บล็อกไว้ ไม่ให้เปลี่ยนวัน
     if (daysToShift > 0 && formattedDate > todayStr) {
       return;
     }
-    setSelectedDate(formattedDate); // ถ้าผ่านเงื่อนไข (เป็นอดีตหรือวันนี้) ก็อัปเดตวันตามปกติ
+    setSelectedDate(formattedDate);
   };
 
+  // 2. ดึงข้อมูล Daily Records และแมปค่าที่คำนวณได้ใส่ลงใน State
   const fetchDailyRecords = async () => {
-    if (!user) return;
-    try {
-      setLoading(true);
+  if (!user) return;
+  try {
+    setLoading(true);
 
-      // ดึงข้อมูลเชื่อมตาราง daily_record -> record_item -> recipes -> recipe_nutrient
-      const { data, error } = await supabase
-        .from("daily_record")
-        .select(`
-          record_id,
-          record_date,
-          record_item (
-            record_item_id,
-            meal_type,
+    const { data, error } = await supabase
+      .from("daily_record")
+      .select(`
+        record_id,
+        record_date,
+        record_item (
+          record_item_id,
+          meal_type,
+          recipe_id,
+          recipe:recipes (
             recipe_id,
-            recipe (
-              recipe_id,
-              name,
-              image,
-              recipe_nutrient!fk_nutrient_to_recipe (
-                calories, protein, carbs, fat, sugar, sodium
+            recipe_name,
+            img,
+            serving,
+            recipe_ingredients (
+              recipe_ingredient_id,
+              weight_g,
+              ingredients (
+                ingredient_id,
+                ingredient_nutrients (
+                  amount,
+                  nutrients (
+                    nutrient_id,
+                    nutrient_name,
+                    nutrient_unit
+                  )
+                )
               )
             )
           )
-        `)
-        .eq("user_id", user.id)
-        .eq("record_date", selectedDate)
-        .maybeSingle();
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("record_date", selectedDate)
+      .maybeSingle();
 
-      if (error) throw error;
+    if (error) throw error;
 
-      if (data && data.record_item) {
-        setItems(data.record_item); // เอาข้อมูลอาหารจริงไปใส่ใน State
-      } else {
-        setItems([]); // ถ้าวันใหม่ยังไม่มีข้อมูล ให้เป็นอาร์เรย์ว่าง
-      }
-    } catch (error) {
-      console.error("Error fetching daily records:", error);
-    } finally {
-      setLoading(false);
+    const recordItems = (data as any)?.record_item;
+
+    if (recordItems && Array.isArray(recordItems)) {
+      const formattedItems = recordItems.map((item: any) => ({
+        ...item,
+        calculatedNutrients: calculateRecipeNutrients(
+          item.recipe?.recipe_ingredients || [],
+          item.recipe?.serving || 1
+        )
+      }));
+      setItems(formattedItems);
+    } else {
+      setItems([]);
     }
-  };
+  } catch (error) {
+    console.error("Error fetching daily records:", error);
+  } finally {
+    setLoading(false);
+  }
+};
+
   useFocusEffect(
     useCallback(() => {
       fetchDailyRecords();
     }, [user, selectedDate])
   );
-  // ฟังก์ชันช่วยดึงค่าของสารอาหารจาก recipe_nutrient โดยตรวจสอบว่ามีข้อมูลไหม
-  const getNutrientValue = (recipeObj: any, key: string) => {
-    if (!recipeObj?.recipe_nutrient) return 0;
-    if (Array.isArray(recipeObj.recipe_nutrient)) {
-      return Number(recipeObj.recipe_nutrient[0]?.[key] || 0);
-    }
-    return Number(recipeObj.recipe_nutrient?.[key] || 0);
-  };
-  // คำนวณผลรวมของสารอาหารทั้งหมดในแต่ละวัน
-  const totalCalories = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "calories"), 0);
-  const totalFat = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "fat"), 0);
-  const totalProtein = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "protein"), 0);
-  const totalCarbs = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "carbs"), 0);
-  const totalSugar = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "sugar"), 0);
-  const totalSodium = items.reduce((sum, item) => sum + getNutrientValue(item.recipe, "sodium"), 0);
 
-  // กรองข้อมูลเพื่อเช็กและแสดงผลในแต่ละช่องมื้ออาหาร
+  // 3. ปรับการคำนวณผลรวมสารอาหารให้ดึงจาก calculatedNutrients
+  const totalCalories = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.calories || 0), 0));
+  const totalFat = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fat || 0), 0));
+  const totalProtein = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.protein || 0), 0));
+  const totalCarbs = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.carbs || 0), 0));
+  const totalSugar = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sugar || 0), 0));
+  const totalSodium = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sodium || 0), 0));
+
+  // กรองข้อมูลมื้ออาหาร
   const breakfast = items.find(i => i.meal_type === "breakfast");
   const lunch = items.find(i => i.meal_type === "lunch");
   const dinner = items.find(i => i.meal_type === "dinner");
@@ -112,10 +171,10 @@ export default function TrackingRecordScreen() {
       params: {
         meal_type: mealType,
         selected_date: selectedDate
-      } // ส่งค่ามื้อเช้า/กลางวัน/เย็น ไปยังหน้า search
+      }
     });
   };
-
+  
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF" }}>
@@ -131,12 +190,10 @@ export default function TrackingRecordScreen() {
         {/* ส่วนที่ 1: Header ตัวสลับวันที่ */}
         <View style={styles.dateHeader}>
           <View style={styles.datePickerContainer}>
-            {/* ปุ่มถอยหลัง 1 วัน */}
             <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(-1)}>
               <Ionicons name="chevron-back" size={24} color="#007AFF" />
             </TouchableOpacity>
 
-            {/* ปุ่มตรงกลาง: กดเพื่อเปิดปฏิทินเลือกวัน */}
             <TouchableOpacity
               style={styles.dateSelectButton}
               onPress={() => setIsCalendarVisible(true)}
@@ -148,18 +205,16 @@ export default function TrackingRecordScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* ปุ่มเดินหน้า 1 วัน */}
             <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(1)}>
               <Ionicons name="chevron-forward" size={24} color="#007AFF" />
             </TouchableOpacity>
           </View>
 
-          {/* ปุ่มขีด 3 ขีดด้านขวาสุด: กดแล้วลิงก์ไปหน้ากราฟสถิติ */}
           <TouchableOpacity
             style={styles.hamburgerButton}
-            onPress={() => router.push("/(app)/(tabs)/record/chart")} // 👈 เปลี่ยนเส้นทางไปไฟล์ chart.tsx
+            onPress={() => router.push("/(app)/(tabs)/record/chart")}
           >
-            <Ionicons name="menu-outline" size={28} color="#333333" />
+            <Ionicons name="analytics-outline" size={28} color="#333333" />
           </TouchableOpacity>
         </View>
 
@@ -181,22 +236,22 @@ export default function TrackingRecordScreen() {
 
             {/* breakfast */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("breakfast")}>
-              <Image source={{ uri: breakfast ? breakfast.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
+              <Image source={{ uri: breakfast?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{breakfast ? breakfast.recipe.name : "Breakfast"}</Text>
+                <Text style={styles.mealName}>{breakfast?.recipe?.recipe_name || "Breakfast"}</Text>
               </View>
               {breakfast ? (
                 <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
               ) : (
-                <Ionicons name="add" size={18} color="#007AFF" /> // เปลี่ยนเป็นไอคอน + ถ้ายังไม่ได้เลือกเมนูอาหาร
+                <Ionicons name="add" size={18} color="#007AFF" />
               )}
             </TouchableOpacity>
 
             {/* lunch */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("lunch")}>
-              <Image source={{ uri: lunch ? lunch.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
+              <Image source={{ uri: lunch?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{lunch ? lunch.recipe.name : "Lunch"}</Text>
+                <Text style={styles.mealName}>{lunch?.recipe?.recipe_name || "Lunch"}</Text>
               </View>
               {lunch ? (
                 <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
@@ -207,9 +262,9 @@ export default function TrackingRecordScreen() {
 
             {/* dinner */}
             <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("dinner")}>
-              <Image source={{ uri: dinner ? dinner.recipe.image : "https://via.placeholder.com/40" }} style={styles.mealThumb} />
+              <Image source={{ uri: dinner?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
               <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{dinner ? dinner.recipe.name : "Dinner"}</Text>
+                <Text style={styles.mealName}>{dinner?.recipe?.recipe_name || "Dinner"}</Text>
               </View>
               {dinner ? (
                 <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
@@ -223,42 +278,36 @@ export default function TrackingRecordScreen() {
         {/* ส่วนที่ 3: แถบแสดง nutrient */}
         <View style={styles.macroSection}>
 
-          {/* แถบ Fat (สีดำ) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#000000" }]} />
             <Text style={styles.macroLabel}>Fat</Text>
             <Text style={styles.macroValue}>{totalFat}/{TARGETS.fat}g</Text>
           </View>
 
-          {/* แถบ Protein (สีน้ำเงิน) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#2F80ED" }]} />
             <Text style={styles.macroLabel}>Protein</Text>
             <Text style={styles.macroValue}>{totalProtein}/{TARGETS.protein}g</Text>
           </View>
 
-          {/* แถบ Carbs (สีส้ม) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#F2994A" }]} />
             <Text style={styles.macroLabel}>Carbs</Text>
             <Text style={styles.macroValue}>{totalCarbs}/{TARGETS.carbs}g</Text>
           </View>
 
-          {/* แถบ Macro/Fiber (สีเขียว) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#27AE60" }]} />
             <Text style={styles.macroLabel}>Macro</Text>
             <Text style={styles.macroValue}>0/{TARGETS.protein}g</Text>
           </View>
 
-          {/* แถบ Sugar (สีฟ้าพาสเทล) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#AADEF5" }]} />
             <Text style={styles.macroLabel}>Sugar</Text>
             <Text style={styles.macroValue}>{totalSugar}/{TARGETS.sugar}g</Text>
           </View>
 
-          {/* แถบ Sodium (สีแดง) */}
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#EB5757" }]} />
             <Text style={styles.macroLabel}>Sodium</Text>
@@ -268,29 +317,28 @@ export default function TrackingRecordScreen() {
         </View>
 
         <View style={{ height: 100 }} />
+
         {/* ส่วนที่ 4: ปฏิทินเลือกวัน */}
         <Modal
           visible={isCalendarVisible}
-          transparent={true} // ทำให้พื้นหลังโปร่งแสงเห็นหน้าเดิมลางๆ
-          animationType="fade" // แอนิเมชันตอนเปิดค่อยๆ โผล่ขึ้นมา
+          transparent={true}
+          animationType="fade"
           onRequestClose={() => setIsCalendarVisible(false)}
         >
-          {/* พื้นหลังสีคล้ำๆ ลางๆ พอกดที่พื้นหลังจะปิดหน้าต่างได้ */}
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
             onPress={() => setIsCalendarVisible(false)}
           >
-            {/* กล่องสีขาวแสดงตัวปฏิทินตรงกลางจอ */}
             <View style={styles.calendarCard}>
               <Text style={styles.calendarModalTitle}>Select Date</Text>
 
               <Calendar
-                current={selectedDate} // เดือนเริ่มต้นจะอิงจากวันที่เรากำลังดูอยู่
-                maxDate={new Date().toISOString().split("T")[0]} // 🔒 ตัวเลือกเสริม: ห้ามเลือกวันอนาคต (ถ้าต้องการ)
+                current={selectedDate}
+                maxDate={new Date().toISOString().split("T")[0]}
                 onDayPress={(day) => {
-                  setSelectedDate(day.dateString); // อัปเดตวันที่แอปเป็นวันที่เรากดจิ้ม
-                  setIsCalendarVisible(false); // จิ้มเสร็จสั่งปิดหน้าต่างทันที
+                  setSelectedDate(day.dateString);
+                  setIsCalendarVisible(false);
                 }}
                 markedDates={{
                   [selectedDate]: { selected: true, selectedColor: "#007AFF", selectedTextColor: "white" }
@@ -302,7 +350,6 @@ export default function TrackingRecordScreen() {
                 }}
               />
 
-              {/* ปุ่มกดปิดปฏิทิน */}
               <TouchableOpacity
                 style={styles.closeCalendarBtn}
                 onPress={() => setIsCalendarVisible(false)}
@@ -380,7 +427,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.4)", // สีดำจางๆ บดบังด้านหลัง
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -388,12 +435,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 20,
-    width: "85%", // จัดขนาดกล่องให้พอดีสายตา
+    width: "85%",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
-    elevation: 5, // แสงเงาสำหรับ Android
+    elevation: 5,
   },
   calendarModalTitle: {
     fontSize: 16,
@@ -412,7 +459,7 @@ const styles = StyleSheet.create({
   closeCalendarText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#FF3B30", // สีแดงสำหรับปุ่มยกเลิก/ปิด
+    color: "#FF3B30",
   },
   hamburgerButton: {
     backgroundColor: "#F2F2F7",

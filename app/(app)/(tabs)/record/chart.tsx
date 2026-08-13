@@ -7,6 +7,31 @@ import { LineChart } from "react-native-chart-kit";
 import { supabase } from "@/src/lib/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
+// ฟังก์ชันคำนวณหาแคลอรีรวมจากวัตถุดิบจริง และหารด้วยจำนวน serving ของสูตรอาหาร
+const calculateRecipeCalories = (recipeIngredients: any[], servingCount: number = 1) => {
+  let totalCal = 0;
+  recipeIngredients?.forEach((ri) => {
+    const weightG = ri.weight_g || 0;
+    const ingredientNutrients = ri.ingredients?.ingredient_nutrients || [];
+
+    ingredientNutrients.forEach((item: any) => {
+      const name = item.nutrients?.nutrient_name?.toLowerCase() || "";
+      const baseAmount = item.amount || 0;
+
+      // ถ้าชื่อเป็นแคลอรีหรือพลังงาน ให้คำนวณตามน้ำหนักวัตถุดิบ
+      if (name.includes("calorie") || name.includes("energy")) {
+        totalCal += (weightG / 100) * baseAmount;
+      }
+    });
+  });
+
+  // ป้องกันกรณี serving เป็น 0 หรือ null
+  const safeServings = servingCount > 0 ? servingCount : 1;
+
+  // หารด้วยจำนวน serving เพื่อคิดแคลอรีต่อ 1 Serving
+  return totalCal / safeServings;
+};
+
 export default function CalorieChartScreen() {
     const router = useRouter();
     const { user } = useAuth();
@@ -30,15 +55,27 @@ export default function CalorieChartScreen() {
                 d.setDate(today.getDate() - i);
                 const dateStr = d.toISOString().split("T")[0];
 
+                // 🛠️ ดึง serving เพิ่มจากตาราง recipes
                 const { data } = await supabase
                     .from("daily_record")
                     .select(`
-            record_item (
-              recipe (
-                recipe_nutrient!fk_nutrient_to_recipe (calories)
-              )
-            )
-          `)
+                      record_item (
+                        recipe:recipes (
+                          serving,
+                          recipe_ingredients (
+                            weight_g,
+                            ingredients (
+                              ingredient_nutrients (
+                                amount,
+                                nutrients (
+                                  nutrient_name
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    `)
                     .eq("user_id", user.id)
                     .eq("record_date", dateStr)
                     .maybeSingle();
@@ -46,12 +83,17 @@ export default function CalorieChartScreen() {
                 let dayCal = 0;
                 if (data && data.record_item) {
                     dayCal = data.record_item.reduce((sum: number, item: any) => {
-                        const cal = item.recipe?.recipe_nutrient?.[0]?.calories || item.recipe?.recipe_nutrient?.calories || 0;
-                        return sum + Number(cal);
+                        // ดึง serving จาก item.recipe
+                        const servingCount = item.recipe?.serving || 1;
+                        const recipeCal = calculateRecipeCalories(
+                          item.recipe?.recipe_ingredients || [],
+                          servingCount
+                        );
+                        return sum + recipeCal;
                     }, 0);
                 }
 
-                caloriesData.push(dayCal);
+                caloriesData.push(Math.round(dayCal));
 
                 // ตัดข้อความเอาแค่วันที่สั้นๆ มาโชว์ที่แกน X (เช่น "10")
                 labelsData.push(dateStr.split("-")[2]);
@@ -89,9 +131,9 @@ export default function CalorieChartScreen() {
         <View style={styles.mainContainer}>
             {/* ส่วนหัวหน้าจอ */}
             <View style={styles.header}>
-                {/*<TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
-                </TouchableOpacity>*/}
+                </TouchableOpacity>
                 <Text style={styles.headerTitle}>Statistic of Calories</Text>
                 <View style={{ width: 40 }} />
             </View>

@@ -1,6 +1,6 @@
 // AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../config/supabase";
 import { AuthContextType } from "../types/AuthContextType";
 import { AuthState } from "../types/AuthState";
 
@@ -20,7 +20,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // ใน AuthContext.tsx
 const fetchExtendedUserData = async (userId: string, activeSession: any) => {
   try {
-    const { data: prof } = await supabase
+    const { data: prof, error: profError } = await supabase
       .from("profiles")
       .select("*")
       .eq("profile_id", userId)

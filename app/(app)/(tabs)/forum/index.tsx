@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 
 export default function ForumIndex() {
   const router = useRouter();

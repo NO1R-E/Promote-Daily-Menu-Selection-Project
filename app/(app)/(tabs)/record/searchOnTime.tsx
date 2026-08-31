@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { StyleSheet, Text, View, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert, TextInput } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
 const PAGE_SIZE = 20; // กำหนดจำนวนการดึงข้อมูลทีละ 20 รายการ

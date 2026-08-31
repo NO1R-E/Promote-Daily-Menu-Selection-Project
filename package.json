@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-navigation/drawer": "^7.13.8",
+    "@react-native-vector-icons/ionicons": "^13.1.2",
     "@supabase/supabase-js": "^2.108.2",
     "@types/react-router-dom": "^5.3.3",
     "dotenv": "^17.4.2",

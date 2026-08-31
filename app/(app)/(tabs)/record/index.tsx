@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useFocusEffect } from "expo-router";
 import { Calendar } from "react-native-calendars";

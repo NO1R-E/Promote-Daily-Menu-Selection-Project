@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 
 export default function AllergiesScreen() {
   const router = useRouter();

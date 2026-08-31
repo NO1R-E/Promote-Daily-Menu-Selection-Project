@@ -13,7 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Dropdown } from "react-native-element-dropdown";
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext"; // 👈 1. Import useAuth
 
 const genderOptions = [

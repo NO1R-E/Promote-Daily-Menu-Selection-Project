@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
-import { supabase } from "@/src/lib/supabase"; // 👈 อย่าลืมตรวจสอบ path ของ supabase client
+import { supabase } from "@/src/config/supabase"; // 👈 อย่าลืมตรวจสอบ path ของ supabase client
 
 const genderData = [
   { label: "Male", value: "1" },

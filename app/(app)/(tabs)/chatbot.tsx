@@ -1,327 +1,278 @@
+import { useAuth } from "@/src/contexts/AuthContext";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Keyboard,
+  FlatList,
+  KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
-
-// 💡 1. Configure backend endpoint address
-const getBackendUrl = () => {
-  if (__DEV__) {
-    if (Platform.OS === "android") {
-      return "http://10.0.2.2:8000/api/chat"; // Android Emulator
-    }
-    return "http://localhost:8000/api/chat"; // iOS Simulator
-  }
-  // Replace with your local Network IP if testing on a physical phone:
-  // return "http://192.168.1.XX:8000/api/chat";
-  return "https://192.168.0.101:8000/api/chat";
-};
-
-const BACKEND_URL = getBackendUrl();
-
-// 💡 2. Match FastAPI's Pydantic Response Schema
-interface ClassificationResult {
-  intent: "usual_chat" | "meal_recommendation" | "recipe_recommendation";
-  preferences: string[];
-}
+import { sendChatMessage } from "../../../src/api/sendChatMessage";
+import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
 
 export default function ChatbotScreen() {
+  const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ClassificationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim()) return;
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
+  const { user } = useAuth();
 
-    Keyboard.dismiss();
+  const handleSend = async () => {
+    if (!inputText.trim() || loading || !user?.id) return;
+
+    const userText = inputText.trim();
+    setInputText("");
+
+    const userMsg: MessageItem = {
+      id: Date.now().toString(),
+      sender: "user",
+      text: userText,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
-    setError(null);
 
     try {
-      // 💡 3. Send HTTP POST request to FastAPI
-      const response = await fetch(BACKEND_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: inputText, // Matches UserMessageRequest schema in FastAPI
-        }),
+      const data = await sendChatMessage({
+        user_id: user.id,
+        room_id: currentRoom,
+        message: userText,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.detail || `Server Error (${response.status})`,
-        );
+      if (!currentRoom && data.room_id) {
+        setCurrentRoom(data.room_id);
       }
 
-      const data: ClassificationResult = await response.json();
-      setResult(data);
+      const botMsg: MessageItem = {
+        id: (Date.now() + 1).toString(),
+        sender: "assistant",
+        text: data.message,
+        recommendations: data.recommendations || [],
+      };
+
+      setMessages((prev) => [...prev, botMsg]);
     } catch (err: any) {
-      setError(err.message || "Could not connect to FastAPI server");
+      const errorMsg: MessageItem = {
+        id: (Date.now() + 1).toString(),
+        sender: "assistant",
+        text: `Error: ${err.message || "Failed to reach server"}`,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.container}>
-        <Text style={styles.headerTitle}>🤖 Intent Classifier Test</Text>
+  const renderRecommendationCard = (rec: MealRecommendation) => (
+    // 💡 1. Use rec.recipe_id or rec.recipe_name as key
+    <View key={rec.recipe_id || rec.recipe_name} style={styles.cardContainer}>
+      <View style={styles.cardHeader}>
+        {/* 💡 2. Render rec.recipe_name instead of rec.name */}
+        <Text style={styles.mealName}>{rec.recipe_name}</Text>
 
-        {/* Middle Screen Result Display */}
-        <View style={styles.centerContainer}>
-          {loading && (
-            <View style={styles.statusBox}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>
-                Classifying via Groq LLM...
-              </Text>
-            </View>
-          )}
-
-          {error && (
-            <View style={[styles.statusBox, styles.errorBox]}>
-              <Text style={styles.errorTitle}>Connection Failed</Text>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          {!loading && !error && result && (
-            <View style={styles.resultCard}>
-              <Text style={styles.resultTitle}>FastAPI Response</Text>
-
-              <View style={styles.row}>
-                <Text style={styles.label}>Intent:</Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{result.intent}</Text>
-                </View>
-              </View>
-
-              <View style={styles.section}>
-                <Text style={styles.label}>Extracted Preferences:</Text>
-                {result.preferences.length > 0 ? (
-                  <View style={styles.tagContainer}>
-                    {result.preferences.map((pref, idx) => (
-                      <View key={idx} style={styles.tag}>
-                        <Text style={styles.tagText}>🏷️ {pref}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.emptyText}>None detected</Text>
-                )}
-              </View>
-
-              {/* Raw JSON viewer to verify response structure */}
-              <View style={styles.codeBlock}>
-                <Text style={styles.codeText}>
-                  {JSON.stringify(result, null, 2)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {!loading && !error && !result && (
-            <Text style={styles.placeholderText}>
-              Enter a message below to test classification and constraint
-              extraction.
+        {/* 💡 3. Handle Score Badge rendering (rec.final_score or rec.score) */}
+        {(rec.final_score !== undefined || rec.health_score !== undefined) && (
+          <View style={styles.scoreBadge}>
+            <Text style={styles.scoreText}>
+              Score {(rec.final_score ?? rec.health_score ?? 0).toFixed(1)}
             </Text>
-          )}
-        </View>
+          </View>
+        )}
+      </View>
 
-        {/* Input Bar */}
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Recommend a meal, no sweet and low salt"
-            placeholderTextColor="#8E8E93"
-            value={inputText}
-            onChangeText={setInputText}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !inputText.trim() && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSendMessage}
-            disabled={!inputText.trim() || loading}
-          >
-            <Text style={styles.sendButtonText}>Send</Text>
-          </TouchableOpacity>
+      {/* Calories & Protein Badges */}
+      <View style={styles.nutritionRow}>
+        <View style={styles.badge}>
+          <Text style={styles.badgeLabel}>Calories:</Text>
+          <Text style={styles.badgeValue}>{rec.calories ?? 0} kcal</Text>
+        </View>
+        <View style={styles.badge}>
+          <Text style={styles.badgeLabel}>Protein:</Text>
+          <Text style={styles.badgeValue}>{rec.protein ?? 0}g</Text>
         </View>
       </View>
-    </TouchableWithoutFeedback>
+
+      {/* Reason Box */}
+      <View style={styles.reasonBox}>
+        <Text style={styles.reasonTitle}>Why this meal?</Text>
+        <Text style={styles.reasonText}>{rec.reason}</Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={90}
+    >
+      <FlatList
+        data={messages}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item }) => (
+          <View
+            style={[
+              styles.bubble,
+              item.sender === "user"
+                ? styles.userBubble
+                : styles.assistantBubble,
+            ]}
+          >
+            {!!item.text && (
+              <Text
+                style={[
+                  styles.bubbleText,
+                  item.sender === "user"
+                    ? styles.userText
+                    : styles.assistantText,
+                ]}
+              >
+                {item.text}
+              </Text>
+            )}
+
+            {item.recommendations && item.recommendations.length > 0 && (
+              <View style={styles.recommendationsList}>
+                {item.recommendations.map(renderRecommendationCard)}
+              </View>
+            )}
+          </View>
+        )}
+      />
+
+      {loading && <ActivityIndicator style={styles.loader} color="#007AFF" />}
+
+      <View style={styles.inputBar}>
+        <TextInput
+          style={styles.input}
+          placeholder="Type a message..."
+          value={inputText}
+          onChangeText={setInputText}
+        />
+        <TouchableOpacity
+          style={[styles.sendBtn, !user?.id && styles.sendBtnDisabled]}
+          onPress={handleSend}
+          disabled={!user?.id || loading}
+        >
+          <Text style={styles.sendText}>Send</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F2F2F7",
-    paddingTop: 60,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    textAlign: "center",
-    color: "#1C1C1E",
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    marginVertical: 16,
-  },
-  placeholderText: {
-    color: "#8E8E93",
-    fontSize: 14,
-    textAlign: "center",
-    paddingHorizontal: 20,
-  },
-  statusBox: {
-    alignItems: "center",
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 14,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
-  errorBox: {
-    backgroundColor: "#FFD2D2",
-    borderRadius: 12,
-    padding: 16,
-    width: "100%",
-  },
-  errorTitle: {
-    fontWeight: "700",
-    color: "#D32F2F",
-    marginBottom: 4,
-  },
-  errorText: {
-    color: "#D32F2F",
-    fontSize: 13,
-  },
-  resultCard: {
-    width: "100%",
+  container: { flex: 1, backgroundColor: "#F5F5F5" },
+  listContent: { padding: 16, gap: 10 },
+  bubble: { maxWidth: "85%", padding: 12, borderRadius: 16 },
+  userBubble: { alignSelf: "flex-end", backgroundColor: "#007AFF" },
+  assistantBubble: { alignSelf: "flex-start", backgroundColor: "#E5E5EA" },
+  bubbleText: { fontSize: 15 },
+  userText: { color: "#FFFFFF" },
+  assistantText: { color: "#000000" },
+
+  // Recommendation Card Styles
+  recommendationsList: { marginTop: 8, gap: 10 },
+  cardContainer: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 18,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
   },
-  resultTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#8E8E93",
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  row: {
+  cardHeader: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
+  mealName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "700",
     color: "#1C1C1E",
-    marginRight: 8,
+  },
+  scoreBadge: {
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  scoreText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#2E7D32",
+  },
+  nutritionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
   },
   badge: {
-    backgroundColor: "#E5F1FF",
-    paddingHorizontal: 10,
+    flexDirection: "row",
+    backgroundColor: "#F2F2F7",
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
-  },
-  badgeText: {
-    color: "#007AFF",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  section: {
-    marginBottom: 12,
-  },
-  tagContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 6,
-  },
-  tag: {
-    backgroundColor: "#F2F2F7",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  tagText: {
-    fontSize: 13,
-    color: "#1C1C1E",
-    fontWeight: "500",
-  },
-  emptyText: {
-    color: "#8E8E93",
-    fontSize: 13,
-    fontStyle: "italic",
-    marginTop: 4,
-  },
-  codeBlock: {
-    backgroundColor: "#1C1C1E",
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  codeText: {
-    color: "#34C759",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 12,
-  },
-  inputContainer: {
-    flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+  },
+  badgeLabel: {
+    fontSize: 12,
+    color: "#6C6C70",
+  },
+  badgeValue: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#1C1C1E",
+  },
+  reasonBox: {
+    backgroundColor: "#F0F4F8",
+    padding: 8,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#007AFF",
+  },
+  reasonTitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#007AFF",
+    marginBottom: 2,
+  },
+  reasonText: {
+    fontSize: 13,
+    color: "#3A3A3C",
+    lineHeight: 18,
+  },
+
+  loader: { marginVertical: 6 },
+  inputBar: {
+    flexDirection: "row",
+    padding: 10,
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "#E5E5EA",
+    borderTopWidth: 1,
+    borderColor: "#DDD",
   },
   input: {
     flex: 1,
     height: 40,
-    fontSize: 15,
-    color: "#1C1C1E",
-    paddingHorizontal: 8,
-  },
-  sendButton: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#F0F0F0",
+    borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 18,
-    marginLeft: 8,
   },
-  sendButtonDisabled: {
-    backgroundColor: "#C7C7CC",
+  sendBtn: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
-  sendButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
+  sendBtnDisabled: {
+    opacity: 0.5,
   },
+  sendText: { color: "#007AFF", fontWeight: "600" },
 });

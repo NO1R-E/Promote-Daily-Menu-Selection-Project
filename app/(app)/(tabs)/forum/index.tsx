@@ -1,5 +1,5 @@
 // app/(app)/forum/index.tsx
-import { supabase } from "@/src/lib/supabase";
+import { supabase } from "@/src/config/supabase";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {

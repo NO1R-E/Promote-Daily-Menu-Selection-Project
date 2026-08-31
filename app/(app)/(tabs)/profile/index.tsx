@@ -100,7 +100,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.mainContainer}>
-      <Text style={styles.screenTitle}>Profile</Text>
+      {/* <Text style={styles.screenTitle}>Profile</Text> */}
 
       {/* กล่องส้มด้านบน */}
       <View style={styles.orangeCard}>
@@ -141,11 +141,14 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         {/* Personal Data */}
-        <View style={[styles.menuItem, { opacity: 0.5 }]}>
-          <Ionicons name="lock-closed-outline" size={22} color="#5856D6" />
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/profile/personalData")} 
+        >
+          <Ionicons name="person-outline" size={22} color="#5856D6" />
           <Text style={styles.menuText}>Personal Data</Text>
           <Ionicons name="chevron-forward" size={18} color="#C7C7CC" />
-        </View>
+        </TouchableOpacity>
         
         {/* Logout */}
         <TouchableOpacity

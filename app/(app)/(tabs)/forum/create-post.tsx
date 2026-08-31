@@ -1,6 +1,7 @@
 // app/(app)/forum/create-post.tsx
 import { useAuth } from "@/src/contexts/AuthContext";
 import { supabase } from "@/src/lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -10,6 +11,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function CreatePostScreen() {
@@ -17,8 +19,8 @@ export default function CreatePostScreen() {
   const { user } = useAuth();
 
   const [title, setTitle] = useState("");
-  const [ingredientsRaw, setIngredientsRaw] = useState(""); 
-  const [stepsRaw, setStepsRaw] = useState(""); 
+  const [ingredientsRaw, setIngredientsRaw] = useState("");
+  const [stepsRaw, setStepsRaw] = useState("");
 
   const handlePublish = async () => {
     if (!title || !ingredientsRaw || !stepsRaw) {
@@ -73,7 +75,13 @@ export default function CreatePostScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Share a Recipe</Text>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Share a Recipe</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
       <Text style={styles.label}>Recipe Title</Text>
       <TextInput
@@ -138,4 +146,19 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   btnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 20,
+        paddingTop: 15,
+        paddingBottom: 15,
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: 1,
+        borderBottomColor: "#E5E5EA",
+    },
+    backButton: { width: 40, height: 40, justifyContent: "center" },
+    headerTitle: { fontSize: 20, fontWeight: "bold" },
+
+
 });

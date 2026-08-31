@@ -5,44 +5,36 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/src/lib/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
-type Step = "SEND_OTP" | "VERIFY_OTP" | "NEW_PASSWORD";
+type Step = "SEND_OTP" | "VERIFY_OTP" | "CONFIRM_DELETE";
 
-export default function ChangePasswordScreen() {
+export default function DeleteAccountScreen() {
     const router = useRouter();
-    const { user } = useAuth(); // ดึง Email จากผู้ใช้ปัจจุบันมาแสดงอัตโนมัติ
+    const { user } = useAuth();
 
     const [step, setStep] = useState<Step>("SEND_OTP");
     const [loading, setLoading] = useState(false);
-
-    // State สำหรับเก็บข้อมูลแต่ละขั้นตอน
     const [otp, setOtp] = useState("");
-    const [newPassword, setNewPassword] = useState("");
-    const [confirmPassword, setConfirmPassword] = useState("");
 
     const email = user?.email || "";
 
-    // 1. ส่ง OTP ไปที่ Email ของผู้ใช้
+    // 1. ส่ง OTP เพื่อยืนยันตัวตน
     const handleSendOTP = async () => {
         if (!email) return;
         try {
             setLoading(true);
-
-            // ✅ ใช้คำสั่งนี้ของ Supabase เพื่อส่งเมล Reset Password ไปหา User
             const { error } = await supabase.auth.resetPasswordForEmail(email);
-
             if (error) throw error;
 
-            Alert.alert("Success", "OTP code sent to your email for password recovery");
-            setStep("VERIFY_OTP"); // ย้ายไปสเต็ปกรอก OTP
+            Alert.alert("Success", "OTP code sent to your email");
+            setStep("VERIFY_OTP");
         } catch (error: any) {
-            console.error("Error sending OTP:", error.message);
-            Alert.alert("Error", "Failed to send OTP to your email: " + error.message);
+            Alert.alert("Error", "Failed to send OTP: " + error.message);
         } finally {
             setLoading(false);
         }
     };
 
-    // 2. ตรวจสอบรหัส OTP ที่ผู้ใช้กรอก
+    // 2. ตรวจสอบรหัส OTP
     const handleVerifyOTP = async () => {
         if (!otp.trim()) {
             Alert.alert("Warning", "Please enter the OTP code");
@@ -51,8 +43,6 @@ export default function ChangePasswordScreen() {
 
         try {
             setLoading(true);
-
-            // ✅ ยืนยันรหัส OTP ด้วย Type "recovery"
             const { error } = await supabase.auth.verifyOtp({
                 email: email,
                 token: otp,
@@ -61,55 +51,40 @@ export default function ChangePasswordScreen() {
 
             if (error) throw error;
 
-            // ถ้าผ่านด่านเรียบร้อย ให้สลับไปหน้าตั้งรหัสผ่านใหม่
-            setStep("NEW_PASSWORD");
+            // ยืนยัน OTP ผ่าน -> ไปสเต็ปยืนยันการลบบัญชี
+            setStep("CONFIRM_DELETE");
         } catch (error: any) {
-            console.error("Error verifying OTP:", error.message);
             Alert.alert("Error", "OTP code is invalid or has expired");
         } finally {
             setLoading(false);
         }
     };
 
-    // 3. บันทึกรหัสผ่านใหม่ลงระบบ และพาเตะกลับหน้า Login
-    const handleResetPassword = async () => {
-        if (!newPassword || !confirmPassword) {
-            Alert.alert("Warning", "Please fill password in all fields");
-            return;
-        }
-        if (newPassword.length < 6) {
-            Alert.alert("Warning", "Password must be at least 6 characters long");
-            return;
-        }
-        if (newPassword !== confirmPassword) {
-            Alert.alert("Warning", "Passwords do not match");
-            return;
-        }
-
+    // 3. ฟังก์ชันดำเนินการลบบัญชีผู้ใช้
+    const handleDeleteAccount = async () => {
         try {
             setLoading(true);
-            // อัปเดตรหัสผ่านใหม่ให้กับ User ปัจจุบัน
-            const { error } = await supabase.auth.updateUser({
-                password: newPassword,
-            });
 
+            // ⚠️ หมายเหตุ: Supabase client-side จะไม่มี deleteUser() โดยตรง 
+            // หากต้องการลบ User ใน Supabase Auth แบบสมบูรณ์ ต้องเรียกผ่าน RPC / Edge Function
+            // หรือถ้าออกแบบตารางใน DB ให้เคลียร์ข้อมูลผู้ใช้ คุณสามารถลบข้อมูลจากตารางได้ที่นี่
+            
+            /* ตัวอย่างการเรียก RPC หรือ Edge Function (ถ้ามี):
+            const { error } = await supabase.rpc('delete_user_account');
             if (error) throw error;
+            */
 
-            // ออกจากระบบเพื่อความปลอดภัย
+            // สั่ง Logout ผู้ใช้งานออกจากระบบ
             await supabase.auth.signOut();
 
-            Alert.alert("Success", "Password changed successfully. Please log in again.", [
+            Alert.alert("Account Deleted", "Your account has been deleted successfully.", [
                 {
                     text: "OK",
-                    onPress: () => {
-                        // เตะกลับไปหน้า Login และรีเซ็ตสแต็ก
-                        router.replace("/(auth)/login");
-                    }
+                    onPress: () => router.replace("/(auth)/login")
                 }
             ]);
         } catch (error: any) {
-            console.error("Error resetting password:", error.message);
-            Alert.alert("Error", "Failed to set new password");
+            Alert.alert("Error", "Failed to delete account: " + error.message);
         } finally {
             setLoading(false);
         }
@@ -120,17 +95,16 @@ export default function ChangePasswordScreen() {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.mainContainer}
         >
-            {/* ⬅️ Header */}
             <View style={styles.header}>
                 <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Change Password</Text>
+                <Text style={styles.headerTitle}>Delete Account</Text>
                 <View style={{ width: 40 }} />
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContainer}>
-                {/* ----------------- STEP 1: แสดง Email & กดส่ง OTP ----------------- */}
+                {/* STEP 1: ส่ง OTP */}
                 {step === "SEND_OTP" && (
                     <View style={styles.formContainer}>
                         <Text style={styles.inputLabel}>Email</Text>
@@ -139,7 +113,7 @@ export default function ChangePasswordScreen() {
                         </View>
 
                         <View style={styles.hintContainer}>
-                            <Text style={styles.hintText}>Want to change password? </Text>
+                            <Text style={styles.hintText}>Want to delete your account? </Text>
                             <TouchableOpacity onPress={handleSendOTP} disabled={loading}>
                                 <Text style={styles.linkText}>Send OTP</Text>
                             </TouchableOpacity>
@@ -149,11 +123,11 @@ export default function ChangePasswordScreen() {
                     </View>
                 )}
 
-                {/* ----------------- STEP 2: กรอกรหัส OTP ----------------- */}
+                {/* STEP 2: กรอก OTP */}
                 {step === "VERIFY_OTP" && (
                     <View style={styles.formContainer}>
                         <Text style={styles.sectionTitle}>Verify your email</Text>
-                        <Text style={styles.sectionSubTitle}>please enter the OTP sent to {email}</Text>
+                        <Text style={styles.sectionSubTitle}>Please enter the OTP sent to {email}</Text>
 
                         <TextInput
                             style={styles.input}
@@ -175,34 +149,28 @@ export default function ChangePasswordScreen() {
                     </View>
                 )}
 
-                {/* ----------------- STEP 3: ตั้งรหัสผ่านใหม่ ----------------- */}
-                {step === "NEW_PASSWORD" && (
+                {/* STEP 3: ยืนยันการลบบัญชี (ปรับปรุงใหม่) */}
+                {step === "CONFIRM_DELETE" && (
                     <View style={styles.formContainer}>
-                        <Text style={styles.sectionTitle}>Set New Password</Text>
-                        <Text style={styles.sectionSubTitle}>please set a new password for your account</Text>
+                        <Text style={styles.sectionTitle}>Are you sure?</Text>
+                        <Text style={styles.sectionSubTitle}>
+                            This action cannot be undone. All your personal data and records will be permanently removed.
+                        </Text>
 
-                        <Text style={styles.inputLabel}>New Password</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="New Password (at least 6 characters)..."
-                            placeholderTextColor="#999"
-                            secureTextEntry
-                            value={newPassword}
-                            onChangeText={setNewPassword}
-                        />
+                        <TouchableOpacity 
+                            style={[styles.primaryButton, { backgroundColor: "#FF3B30" }]} 
+                            onPress={handleDeleteAccount} 
+                            disabled={loading}
+                        >
+                            {loading ? (
+                                <ActivityIndicator size="small" color="#FFF" />
+                            ) : (
+                                <Text style={styles.primaryButtonText}>Confirm Delete Account</Text>
+                            )}
+                        </TouchableOpacity>
 
-                        <Text style={styles.inputLabel}>Confirm New Password</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Confirm New Password..."
-                            placeholderTextColor="#999"
-                            secureTextEntry
-                            value={confirmPassword}
-                            onChangeText={setConfirmPassword}
-                        />
-
-                        <TouchableOpacity style={styles.primaryButton} onPress={handleResetPassword} disabled={loading}>
-                            {loading ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.primaryButtonText}>Save New Password</Text>}
+                        <TouchableOpacity style={styles.textButton} onPress={() => router.back()} disabled={loading}>
+                            <Text style={styles.textButtonText}>Cancel</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -226,11 +194,8 @@ const styles = StyleSheet.create({
     },
     backButton: { width: 40, height: 40, justifyContent: "center" },
     headerTitle: { fontSize: 20, fontWeight: "bold" },
-
     scrollContainer: { padding: 24 },
     formContainer: { width: "100%", marginTop: 10 },
-
-    // สไตล์ Label และ Input สีเทาอ่านอย่างเดียว (ตามภาพ Mockup)
     inputLabel: { fontSize: 16, fontWeight: "bold", color: "#1C1C1E", marginBottom: 8, marginTop: 10 },
     disabledInput: {
         width: "100%",
@@ -243,15 +208,11 @@ const styles = StyleSheet.create({
         backgroundColor: "#FAFAFA",
     },
     disabledInputText: { fontSize: 16, color: "#8E8E93" },
-
-    // สไตล์ข้อความกดส่ง OTP (ตามภาพ Mockup)
     hintContainer: { flexDirection: "row", marginTop: 15, alignItems: "center" },
     hintText: { fontSize: 14, color: "#8E8E93" },
     linkText: { fontSize: 14, color: "#007AFF", fontWeight: "600", textDecorationLine: "underline" },
-
-    // สไตล์หน้าตั้งรหัส / กรอก OTP
     sectionTitle: { fontSize: 22, fontWeight: "bold", color: "#1C1C1E", marginBottom: 8 },
-    sectionSubTitle: { fontSize: 14, color: "#8E8E93", marginBottom: 25 },
+    sectionSubTitle: { fontSize: 14, color: "#8E8E93", marginBottom: 25, lineHeight: 20 },
     input: {
         width: "100%",
         height: 50,

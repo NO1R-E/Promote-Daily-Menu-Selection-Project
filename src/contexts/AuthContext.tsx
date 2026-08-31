@@ -17,41 +17,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     loading: true,
   });
 
-  const fetchExtendedUserData = async (userId: string, activeSession: any) => {
-    try {
-      // Fetch profile details matching your custom profile_id layout
+  // ใน AuthContext.tsx
+const fetchExtendedUserData = async (userId: string, activeSession: any) => {
+  try {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("profile_id", userId)
+      .single();
 
-      const { data: prof, error: profError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("profile_id", userId) // Clean any hidden spaces or type wrappers
-        .single();
+    const { data: metrics } = await supabase
+      .from("personalData")
+      .select("*")
+      .eq("personal_id", userId)
+      .maybeSingle();
 
-      if (profError) {
-        console.log("Postgres Query Error Code:", profError.code);
-        console.log("Postgres Query Error Message:", profError.message);
-      }
-      // Fetch physical metrics/dietary limits
-      const { data: metrics } = await supabase
-        .from("personalData")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+    // 💡 ดึงข้อมูลจาก user_pref เพื่อดูว่ากรอกถึงขั้นตอนสุดท้ายหรือยัง
+    const { data: prefData } = await supabase
+      .from("user_pref")
+      .select("user_id")
+      .eq("user_id", userId)
+      .limit(1);
 
-      // 3. Atomically update all entities simultaneously
-      setState({
-        session: activeSession,
-        user: activeSession?.user ?? null,
-        profile: prof,
-        personalData: metrics,
-        hasCompletedOnboarding: !!metrics,
-        loading: false,
-      });
-    } catch (error) {
-      console.error("Error fetching extended user structures:", error);
-      setState((prev) => ({ ...prev, loading: false }));
-    }
-  };
+    // ถ้ามีข้อมูลใน user_pref (แม้จะเป็น Array ว่างเปล่าจากการลบ/บันทึก) 
+    // ให้เช็กว่ามีรายการถูกกรอกแล้วหรือไม่
+    const isCompleted = Array.isArray(prefData) && prefData.length > 0;
+
+    setState({
+      session: activeSession,
+      user: activeSession?.user ?? null,
+      profile: prof,
+      personalData: metrics,
+      hasCompletedOnboarding: isCompleted, // 👈 จะกลายเป็น true เมื่อกรอกถึงหน้า preference
+      loading: false,
+    });
+  } catch (error) {
+    console.error("Error fetching extended user structures:", error);
+    setState((prev) => ({ ...prev, loading: false }));
+  }
+};
 
   const refreshUserData = async () => {
     if (state.user) {

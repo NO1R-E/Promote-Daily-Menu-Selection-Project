@@ -14,8 +14,8 @@ function NavigationGate() {
     } else if (isAdmin) {
       router.replace("/(admin)/tempScreen");
     } else if (user && !hasCompletedOnboarding) {
-      router.replace("/(app)/(tabs)/chatbot");
-      // router.replace("/(onboarding)/personalData");
+      //router.replace("/(app)/(tabs)/chatbot");
+      router.replace("/(onboarding)/personalData");
     } else {
       router.replace("/(app)/(tabs)/chatbot");
     }

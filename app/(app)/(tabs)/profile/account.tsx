@@ -55,9 +55,9 @@ export default function MyAccountScreen() {
 
             {/* ⬅️ แถบ Header และปุ่มย้อนกลับ */}
             <View style={styles.header}>
-                {/*<TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>*/}
+                <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                    <Ionicons name="arrow-back" size={24} color="#FF7A00" />
+                </TouchableOpacity>
                 <Text style={styles.headerTitle}>My Account</Text>
                 <View style={{ width: 40 }} />
             </View>
@@ -72,7 +72,7 @@ export default function MyAccountScreen() {
                     <View style={styles.infoRow}>
                         <Text style={styles.infoLabel}>Email</Text>
                         <Text style={styles.infoValue}>{user?.email || "No Email Found"}</Text>
-                    </View>      
+                    </View>
                 </View>
 
                 {/* ส่วนตั้งค่าความปลอดภัย */}
@@ -91,7 +91,9 @@ export default function MyAccountScreen() {
                 </TouchableOpacity>
 
                 {/* ปุ่มลบบัญชี */}
-                <TouchableOpacity style={[styles.actionButton, styles.deleteButton, { opacity: 0.8 }]} activeOpacity={1}>
+                <TouchableOpacity 
+                    style={styles.actionButton}
+                    onPress={() => router.push("/profile/deleteAccount")}>
                     <View style={[styles.actionIconContainer, styles.deleteIconContainer]}>
                         <Ionicons name="trash-outline" size={20} color="#FF3B30" />
                     </View>
@@ -121,7 +123,7 @@ const styles = StyleSheet.create({
         borderBottomColor: "#E5E5EA",
     },
     backButton: { width: 40, height: 40, justifyContent: "center" },
-    headerTitle: { fontSize: 18, fontWeight: "bold", color: "#1C1C1E" },
+    headerTitle: { fontSize: 18, fontWeight: "bold", color: "#FF7A00" },
 
     contentContainer: { padding: 20 },
     sectionTitle: { fontSize: 14, fontWeight: "600", color: "#8E8E93", textTransform: "uppercase", marginBottom: 10, marginTop: 15, paddingLeft: 5 },

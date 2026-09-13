@@ -81,6 +81,15 @@ export default function RegisterScreen() {
           <TouchableOpacity style={styles.button} onPress={handleSignUp}>
             <Text style={styles.btnText}>Send Verification OTP</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => router.push("/login")}
+            style={{ marginTop: 20 }}
+          >
+            <Text style={{ color: "#007AFF", textAlign: "center" }}>
+              Already have an account? Sign In
+            </Text>
+          </TouchableOpacity>
         </>
       ) : (
         <>

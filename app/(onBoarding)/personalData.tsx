@@ -11,18 +11,19 @@ import {
   View,
 } from "react-native";
 import { Dropdown } from "react-native-element-dropdown";
-import { supabase } from "@/src/config/supabase"; // 👈 อย่าลืมตรวจสอบ path ของ supabase client
+import { supabase } from "@/src/config/supabase";
+import { useAuth } from "@/src/contexts/AuthContext";
 
 const genderData = [
-  { label: "Male", value: "1" },
-  { label: "Female", value: "2" },
-  { label: "Other", value: "3" },
+  { label: "Male", value: "male" },
+  { label: "Female", value: "female" },
+  { label: "Other", value: "other" },
 ];
 
 const exerciseData = [
-  { label: "Low", value: "1" },
-  { label: "Moderate", value: "2" },
-  { label: "High", value: "3" },
+  { label: "Low", value: "low" },
+  { label: "Moderate", value: "moderate" },
+  { label: "High", value: "high" },
 ];
 
 const preferenceData = [
@@ -37,6 +38,9 @@ const preferenceData = [
 ];
 
 export default function PersonalDataScreen() {
+  const { personalData } = useAuth();
+  const { user } = useAuth();
+
   const [gender, setGender] = useState("");
   const [age, setAge] = useState("");
   const [height, setHeight] = useState("");
@@ -48,37 +52,18 @@ export default function PersonalDataScreen() {
 
   // ดึงข้อมูลเดิมมาแสดง
   useEffect(() => {
-    const fetchExistingData = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+    if (personalData) {
+      setGender(String(personalData.gender || ""));
+      setAge(String(personalData.age || ""));
+      setHeight(String(personalData.height || ""));
+      setWeight(String(personalData.weight || ""));
+      setIntensityExercise(String(personalData.intensity_exercise || ""));
+      setPreference(String(personalData.dietary_pref || ""));
+    }
+  }, [personalData]);
 
-        const { data, error } = await supabase
-          .from("personalData")
-          .select("*")
-          .eq("personal_id", user.id)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (data) {
-          setGender(String(data.gender || ""));
-          setAge(String(data.age || ""));
-          setHeight(String(data.height || ""));
-          setWeight(String(data.weight || ""));
-          setIntensityExercise(String(data.intensity_exercise || ""));
-          setPreference(String(data.dietary_pref || ""));
-        }
-      } catch (err) {
-        console.error("Error fetching personal data:", err);
-      }
-    };
-
-    fetchExistingData();
-  }, []);
-  
   const handlePersonalData = async () => {
-    // 1. ตรวจสอบว่ากรอกข้อมูลครบทุกช่องหรือไม่
+    // ตรวจสอบการกรอกข้อมูล
     if (!gender || !age || !height || !weight || !intensityExercise || !preference) {
       Alert.alert("Validation Error", "Please fill in all fields.");
       return;
@@ -86,35 +71,30 @@ export default function PersonalDataScreen() {
 
     setLoading(true);
 
+    // ตรวจสอบ user
+    if (!user) {
+      Alert.alert("Error", "User not authenticated. Please log in again.");
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      // 2. ดึงข้อมูล User ปัจจุบันที่ Login อยู่จาก Supabase Auth
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        Alert.alert("Error", "User not authenticated. Please log in again.");
-        return;
-      }
-
-      // 3. บันทึกข้อมูลลงตาราง personalData ใน Supabase
       const { error } = await supabase.from("personalData").upsert(
         {
-          personal_id: user.id, // Primary Key หรือ Unique Key จาก auth.users
-          gender: Number(gender),
+          personal_id: user.id, 
+          gender: gender,
           age: Number(age),
           height: Number(height),
           weight: Number(weight),
-          intensity_exercise: Number(intensityExercise),
+          intensity_exercise: intensityExercise,
           dietary_pref: Number(preference),
         },
-        { onConflict: "personal_id" } // ถ้ามีข้อมูลเดิมอยู่แล้วจะสลับเป็น UPDATE ให้อัตโนมัติ
+        { onConflict: "personal_id" }
       );
 
       if (error) throw error;
 
-      // 4. สำเร็จแล้วไปหน้าถัดไป
       router.push("/(onboarding)/allergies");
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to save personal data.");

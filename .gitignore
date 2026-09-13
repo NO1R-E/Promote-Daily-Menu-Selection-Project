@@ -42,3 +42,11 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# VS Code
+.vscode/
+
+
+# Python
+__pycache__/
+.pytest_cache/

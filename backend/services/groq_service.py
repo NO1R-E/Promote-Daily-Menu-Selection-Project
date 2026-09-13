@@ -36,6 +36,13 @@ def get_groq_client() -> Groq:
         raise ValueError("GROQ_API_KEYS list is empty in configuration.")
     return Groq(api_key=next(_key_cycle))
 
+def get_health_check_client() -> Groq:
+    """Dedicated client for health checks only — always uses a single fixed
+    key and never touches the rotation used for real chat traffic."""
+    if not GROQ_API_KEYS:
+        raise ValueError("GROQ_API_KEYS list is empty in configuration.")
+    return Groq(api_key=GROQ_API_KEYS[0])
+
 async def execute_groq_request(
     messages: list, 
     model: str, 

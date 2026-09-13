@@ -1,10 +1,13 @@
 import { AuthProvider } from "@/src/contexts/AuthContext";
+import { HealthProvider } from "@/src/contexts/HealthContext";
 import { Stack } from "expo-router";
 
 export default function AppLayout() {
   return (
     <AuthProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <HealthProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </HealthProvider>
     </AuthProvider>
   );
 }

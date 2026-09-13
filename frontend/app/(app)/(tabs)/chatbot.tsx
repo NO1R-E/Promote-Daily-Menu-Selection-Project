@@ -1,5 +1,6 @@
 import { useAuth } from "@/src/contexts/AuthContext";
-import { useState } from "react";
+import { useHealth } from "@/src/contexts/HealthContext";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -13,11 +14,13 @@ import {
 } from "react-native";
 import { sendChatMessage } from "../../../src/api/sendChatMessage";
 import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
+import { HealthBanner } from "@/components/HealthBanner";
 
 export default function ChatbotScreen() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
+  const { isServerHealthy } = useHealth();
 
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
   const { user } = useAuth();
@@ -69,13 +72,9 @@ export default function ChatbotScreen() {
   };
 
   const renderRecommendationCard = (rec: MealRecommendation) => (
-    // 💡 1. Use rec.recipe_id or rec.recipe_name as key
     <View key={rec.recipe_id || rec.recipe_name} style={styles.cardContainer}>
       <View style={styles.cardHeader}>
-        {/* 💡 2. Render rec.recipe_name instead of rec.name */}
         <Text style={styles.mealName}>{rec.recipe_name}</Text>
-
-        {/* 💡 3. Handle Score Badge rendering (rec.final_score or rec.score) */}
         {(rec.final_score !== undefined || rec.health_score !== undefined) && (
           <View style={styles.scoreBadge}>
             <Text style={styles.scoreText}>
@@ -111,6 +110,7 @@ export default function ChatbotScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      <HealthBanner />
       <FlatList
         data={messages}
         keyExtractor={(item) => item.id}
@@ -158,7 +158,7 @@ export default function ChatbotScreen() {
         <TouchableOpacity
           style={[styles.sendBtn, !user?.id && styles.sendBtnDisabled]}
           onPress={handleSend}
-          disabled={!user?.id || loading}
+          disabled={!user?.id || loading || !isServerHealthy}
         >
           <Text style={styles.sendText}>Send</Text>
         </TouchableOpacity>

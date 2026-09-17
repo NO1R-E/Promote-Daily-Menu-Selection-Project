@@ -18,19 +18,58 @@ export default function RegisterScreen() {
   const [token, setToken] = useState("");
   const router = useRouter();
 
+  const checkUsernameExists = async (username: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("username", username.trim())
+      .maybeSingle();
+    if (error) {
+      console.error("Error checking username:", error.message);
+      return false;
+    }
+    return data !== null;
+  };
+
+  const validateRegistrationInput = async () => {
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (await checkUsernameExists(userName)) {
+      return "Username already exists. Please choose another.";
+    }
+    if (!userName || userName.trim() === "") {
+      return "Username is required.";
+    }
+    if (!email || email.trim() === "") {
+      return "Email is required.";
+    }
+    if (!password || password.trim() === "") {
+      return "Password is required.";
+    }
+    if (!usernameRegex.test(userName)) {
+      return "Username must be 3-20 characters long and can only contain letters, numbers, and underscores.";
+    }
+    if (!emailRegex.test(email)) {
+      return "Please enter a valid email address.";
+    }
+    return null;
+  };
+
   const handleSignUp = async () => {
-    // Pass custom profile data inside the options block to feed the database trigger
+    const validationError = await validateRegistrationInput();
+    if (validationError) {
+      Alert.alert("Validation Error", validationError);
+      return;
+    }
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          user_name: userName,
-          role: "users", // Automatically assigns 'users'. Change to 'administrator' manually in DB if needed.
+          username: userName,
         },
       },
     });
-
     if (error) {
       Alert.alert("Signup Error", error.message);
     } else {

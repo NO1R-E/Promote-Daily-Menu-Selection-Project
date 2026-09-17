@@ -1,10 +1,11 @@
 import { AuthProvider, useAuth } from "@/src/contexts/AuthContext"; // Fix path to your context file
+import { HealthProvider } from "@/src/contexts/HealthContext";
 import { Stack, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 function NavigationGate() {
-  const { user, loading, hasCompletedOnboarding, isAdmin } = useAuth();
+  const { user, loading, onboardingStatus, isAdmin, homeRoute } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -12,14 +13,14 @@ function NavigationGate() {
     if (!user) {
       router.replace("/(auth)/login");
     } else if (isAdmin) {
-      router.replace("/(admin)/tempScreen");
-    } else if (user && !hasCompletedOnboarding) {
+      router.replace(homeRoute);
+    } else if (user && onboardingStatus === "not_started") {
       //router.replace("/(app)/(tabs)/chatbot");
-      router.replace("/(onboarding)/personalData");
+      router.replace("/(onboarding)");
     } else {
-      router.replace("/(app)/(tabs)/chatbot");
+      router.replace(homeRoute);
     }
-  }, [user, loading, hasCompletedOnboarding]);
+  }, [user, loading, onboardingStatus]);
 
   if (loading) {
     return (
@@ -36,7 +37,6 @@ function NavigationGate() {
     );
   }
 
-  // Once loading is finished, render your structural layout slots
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
@@ -49,7 +49,9 @@ function NavigationGate() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <NavigationGate />
+      <HealthProvider>
+        <NavigationGate />
+      </HealthProvider>
     </AuthProvider>
   );
 }

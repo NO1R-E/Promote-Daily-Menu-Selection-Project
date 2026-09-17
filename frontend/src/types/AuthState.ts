@@ -5,6 +5,6 @@ export type AuthState = {
   user: User | null;
   profile: any | null;
   personalData: any | null;
-  hasCompletedOnboarding: boolean;
+  onboardingStatus: 'not_started' | 'skipped' | 'completed';
   loading: boolean;
 };

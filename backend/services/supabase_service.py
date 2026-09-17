@@ -106,6 +106,7 @@ async def get_or_create_room(user_id: str, room_id: Optional[str], initial_messa
 
 async def fetch_recipes_cache():
     global MEAL_CACHE
+    TestMode = True  # Set to True for testing with a smaller dataset
     try:
         all_rows = []
         page_size = 1000
@@ -126,7 +127,7 @@ async def fetch_recipes_cache():
 
             all_rows.extend(data)
             
-            if len(data) < page_size:
+            if TestMode or len(data) < page_size:
                 break
 
             start += page_size

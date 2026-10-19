@@ -29,21 +29,15 @@ const exerciseOptions = [
   { label: "High", value: "high" },
 ];
 
-const preferenceOptions = [
-  { label: "Normal", value: "1" },
-  { label: "Halal", value: "2" },
-  { label: "Jiae", value: "3" },
-  { label: "Vegetarian", value: "4" },
-  { label: "Lacto Vegetarian", value: "5" },
-  { label: "Lacto Ovo Vegetarian", value: "6" },
-  { label: "Pescatarian", value: "7" },
-  { label: "Keto", value: "8" },
+const goalOptions = [
+  { label: "Lose Weight", value: "lose_weight" },
+  { label: "Maintain Weight", value: "maintain_weight" },
+  { label: "Build Muscle", value: "build_muscle" },
 ];
 
-const PREFERENCE_MAP: Record<string, string> = {
-  "1": "Normal", "2": "Halal", "3": "Jiae", "4": "Vegetarian",
-  "5": "Lacto Vegetarian", "6": "Lacto Ovo Vegetarian", "7": "Pescatarian", "8": "Keto",
-};
+// [TAG GROUP] group_id ในตาราง tag_groups (tags.group_id เชื่อมมาที่ตารางนี้)
+const ALLERGEN_GROUP_ID = 6; // group_name = Allergen
+const DIET_GROUP_ID = 7; // group_name = Diet
 
 // gender กับ intensity_exercise เก็บเป็น enum (string) ใน DB ตรงๆ เลยไม่ต้อง map ผ่านตัวเลขแบบ dietary_pref
 const getOptionLabel = (options: { label: string; value: string }[], value: string) => {
@@ -54,35 +48,36 @@ const getOptionLabel = (options: { label: string; value: string }[], value: stri
 export default function DisplayPersonalDataScreen() {
   const router = useRouter();
 
+  // 👈 2. ดึง personalData, user, refreshUserData จาก AuthContext
   const { personalData, user, refreshUserData, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Personal Data
+  // State สำหรับ Personal Data
   const [gender, setGender] = useState("");
   const [age, setAge] = useState("");
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
   const [intensityExercise, setIntensityExercise] = useState("");
-  const [preference, setPreference] = useState("");
+  const [goal, setGoal] = useState("");
 
-  // Food Allergies
+  // State สำหรับ Food Allergies
   const [allergyQuery, setAllergyQuery] = useState("");
   const [allergyLoading, setAllergyLoading] = useState(false);
   const [allergyResults, setAllergyResults] = useState<{ tag_id: any; tag_name: string }[]>([]);
   const [selectedAllergies, setSelectedAllergies] = useState<{ tag_id: any; tag_name: string }[]>([]);
   const [isAllergyFocused, setIsAllergyFocused] = useState(false);
 
-  //   Dietary Preferences 
+  // State สำหรับ Dietary Preferences (Halal / Vegan / Non-Jae) - อ้างอิงจาก allergies.tsx
   const [dietQuery, setDietQuery] = useState("");
   const [dietLoading, setDietLoading] = useState(false);
   const [dietResults, setDietResults] = useState<{ tag_id: any; tag_name: string }[]>([]);
   const [selectedDiets, setSelectedDiets] = useState<{ tag_id: any; tag_name: string }[]>([]);
   const [isDietFocused, setIsDietFocused] = useState(false);
 
-  // ดึง Personal Data
+  // 👈 3. ฟังก์ชันกำหนดค่า Personal Data จาก Context
   const syncPersonalDataFromContext = () => {
     if (personalData) {
       setGender(String(personalData.gender || ""));
@@ -90,19 +85,19 @@ export default function DisplayPersonalDataScreen() {
       setHeight(String(personalData.height || ""));
       setWeight(String(personalData.weight || ""));
       setIntensityExercise(String(personalData.intensity_exercise || ""));
-      setPreference(String(personalData.dietary_pref || ""));
+      setGoal(String(personalData.goal || ""));
     }
   };
 
-  // ดึง Allergies + Dietary 
+  // 👈 4. Fetch เฉพาะ Allergies + Dietary จาก Supabase (เพราะ Context ยังไม่ได้เก็บไว้)
   const fetchAllergies = async () => {
     try {
       setLoading(true);
       if (!user) return;
 
       const { data: allergiesData, error } = await supabase
-        .from("user_allergies")
-        .select("tag_id, tags(tag_id, tag_name)")
+        .from("user_filter")
+        .select("tag_id, tags(tag_id, tag_name, group_id)")
         .eq("user_id", user.id);
 
       if (error) throw error;
@@ -113,9 +108,10 @@ export default function DisplayPersonalDataScreen() {
       (allergiesData || []).forEach((item: any) => {
         if (!item.tags) return;
         const tagObj = { tag_id: item.tags.tag_id, tag_name: item.tags.tag_name };
-        if (["Halal", "Vegan", "Non-Jae"].includes(item.tags.tag_name)) {
+        // [TAG GROUP] แยกประเภทด้วย group_id
+        if (item.tags.group_id === DIET_GROUP_ID) {
           diets.push(tagObj);
-        } else {
+        } else if (item.tags.group_id === ALLERGEN_GROUP_ID) {
           allergies.push(tagObj);
         }
       });
@@ -134,7 +130,7 @@ export default function DisplayPersonalDataScreen() {
     fetchAllergies();
   }, [personalData, user]);
 
-  // ค้นหา Tag Allergies
+  // ค้นหา Tag อาหารที่แพ้ - แตะช่องปุ๊บโชว์ตัวเลือกเลยแม้ยังไม่พิมพ์อะไร (ไม่รวม tag ฝั่ง dietary)
   useEffect(() => {
     const fetchAllergyTags = async () => {
       if (!isAllergyFocused) return;
@@ -144,8 +140,7 @@ export default function DisplayPersonalDataScreen() {
         let query = supabase
           .from("tags")
           .select("tag_id, tag_name")
-          .eq("tag_category", "FILTER")
-          .not("tag_name", "in", "(Halal,Vegan,Non-Jae)");
+          .eq("group_id", ALLERGEN_GROUP_ID); // [TAG GROUP] เดิมใช้ tag_category = "FILTER"
 
         if (allergyQuery.trim()) {
           query = query.ilike("tag_name", `%${allergyQuery}%`);
@@ -165,7 +160,7 @@ export default function DisplayPersonalDataScreen() {
     return () => clearTimeout(timer);
   }, [allergyQuery, isAllergyFocused]);
 
-  // ค้นหา Tag Dietary Preferences 
+  // ค้นหา Tag ฝั่ง Dietary Preferences (Halal / Vegan / Non-Jae) - แตะช่องปุ๊บโชว์ตัวเลือกเลย
   useEffect(() => {
     const fetchDietTags = async () => {
       if (!isDietFocused) return;
@@ -175,7 +170,7 @@ export default function DisplayPersonalDataScreen() {
         let query = supabase
           .from("tags")
           .select("tag_id, tag_name")
-          .in("tag_name", ["Halal", "Vegan", "Non-Jae"]);
+          .eq("group_id", DIET_GROUP_ID); // [TAG GROUP]
 
         if (dietQuery.trim()) {
           query = query.ilike("tag_name", `%${dietQuery}%`);
@@ -195,7 +190,6 @@ export default function DisplayPersonalDataScreen() {
     return () => clearTimeout(timer);
   }, [dietQuery, isDietFocused]);
 
-  // เพิ่ม/ลบ Allergy
   const handleSelectAllergy = (tag: { tag_id: any; tag_name: string }) => {
     if (!selectedAllergies.some((t) => t.tag_id === tag.tag_id)) {
       setSelectedAllergies([...selectedAllergies, tag]);
@@ -208,7 +202,6 @@ export default function DisplayPersonalDataScreen() {
     setSelectedAllergies(selectedAllergies.filter((t) => t.tag_id !== tagId));
   };
 
-  // เพิ่ม/ลบ Dietary Preference
   const handleSelectDiet = (tag: { tag_id: any; tag_name: string }) => {
     if (!selectedDiets.some((t) => t.tag_id === tag.tag_id)) {
       setSelectedDiets([...selectedDiets, tag]);
@@ -227,9 +220,9 @@ export default function DisplayPersonalDataScreen() {
     Keyboard.dismiss();
   };
 
-  // บันทึกข้อมูล
+  // บันทึกข้อมูลทั้งหมด
   const handleSave = async () => {
-    if (!gender || !age || !height || !weight || !intensityExercise || !preference) {
+    if (!gender || !age || !height || !weight || !intensityExercise || !goal) {
       Alert.alert("Validation Error", "Please fill in all personal data fields.");
       return;
     }
@@ -247,16 +240,16 @@ export default function DisplayPersonalDataScreen() {
           height: Number(height),
           weight: Number(weight),
           intensity_exercise: intensityExercise,
-          dietary_pref: Number(preference),
+          goal: goal,
         },
         { onConflict: "personal_id" }
       );
 
       if (personalError) throw personalError;
 
-      // 2. Update Allergies + Dietary tags
+      // 2. Update Allergies + Dietary tags (user_filter) - รวมสองฝั่งแล้วบันทึกทีเดียว
       const { error: deleteError } = await supabase
-        .from("user_allergies")
+        .from("user_filter")
         .delete()
         .eq("user_id", user.id);
 
@@ -271,13 +264,13 @@ export default function DisplayPersonalDataScreen() {
         }));
 
         const { error: insertError } = await supabase
-          .from("user_allergies")
+          .from("user_filter")
           .insert(recordsToInsert);
 
         if (insertError) throw insertError;
       }
 
-      // อัปเดต AuthContext 
+      // 👈 5. เรียก refreshUserData เพื่ออัปเดต AuthContext ให้ได้ค่าล่าสุด
       await refreshUserData();
 
       Alert.alert("Success", "Profile data updated successfully.");
@@ -404,26 +397,27 @@ export default function DisplayPersonalDataScreen() {
             )}
           </View>
   
-          {/* Dietary Preference */}
+          {/* Goal */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Dietary Preference</Text>
+            <Text style={styles.label}>Goal</Text>
             {isEditing ? (
               <Dropdown
                 style={styles.dropdown}
                 placeholderStyle={styles.placeholderStyle}
                 selectedTextStyle={styles.selectedTextStyle}
-                data={preferenceOptions}
+                data={goalOptions}
                 labelField="label"
                 valueField="value"
-                placeholder="Select preference"
-                value={preference}
-                onChange={(item) => setPreference(item.value)}
+                placeholder="Select goal"
+                value={goal}
+                onChange={(item) => setGoal(item.value)}
               />
             ) : (
-              <TextInput style={styles.input} value={PREFERENCE_MAP[preference] || "-"} editable={false} />
+              <TextInput style={styles.input} value={getOptionLabel(goalOptions, goal)} editable={false} />
             )}
           </View>
-  
+
+
           {/* 🥑 Food Allergies Section */}
           <View style={[styles.inputGroup, { zIndex: 20 }]}>
             <Text style={styles.label}>Food Allergies</Text>

@@ -12,9 +12,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     user: null,
     profile: null,
     personalData: null,
-    onboardingStatus: 'not_started',
+    onboardingStatus: "not_started",
     loading: true,
   });
+
+  const clearState = () => {
+    setState({
+      session: null,
+      user: null,
+      profile: null,
+      personalData: null,
+      onboardingStatus: "not_started",
+      loading: false,
+    });
+  };
 
   const fetchExtendedUserData = async (userId: string, activeSession: any) => {
     try {
@@ -23,6 +34,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .select("*")
         .eq("profile_id", userId)
         .single();
+
+      if (prof?.user_status === true) {
+        await supabase.auth.signOut();
+        clearState();
+        console.log("User is banned. Logging out.");
+        return;
+      }
 
       const { data: metrics } = await supabase
         .from("personalData")
@@ -41,7 +59,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user: activeSession?.user ?? null,
         profile: prof,
         personalData: metrics,
-        onboardingStatus: prof?.onboarding_status || 'not_started',
+        onboardingStatus: prof?.onboarding_status || "not_started",
         loading: false,
       });
     } catch (error) {
@@ -78,14 +96,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (session?.user) {
         await fetchExtendedUserData(session.user.id, session);
       } else {
-        setState({
-          session: null,
-          user: null,
-          profile: null,
-          personalData: null,
-          onboardingStatus: 'not_started',
-          loading: false,
-        });
+        clearState();
       }
     });
 
@@ -96,9 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   //console.log(state.profile);
   const isAdmin = state.profile?.role === "admin";
 
-  const homeRoute = isAdmin
-  ? "/(admin)/tempScreen"
-  : "/(app)/(tabs)/chatbot";
+  const homeRoute = isAdmin ? "/(admin)" : "/(app)/(tabs)/chatbot";
 
   return (
     <AuthContext.Provider

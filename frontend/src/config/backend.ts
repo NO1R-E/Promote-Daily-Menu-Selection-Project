@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+const MY_CURRENT_LOCAL_IP = "192.168.0.101"; //fallback use your local IP address
 
 export const getBackendUrl = (): string => {
   if (__DEV__) {
@@ -7,7 +8,7 @@ export const getBackendUrl = (): string => {
     }
     return "http://localhost:8000"; // iOS Simulator
   }
-  return "https://192.168.0.101:8000"; // Physical Device / Production
+  return `https://${MY_CURRENT_LOCAL_IP}:8000`; // Physical Device / Production
 };
 
 export const BASE_URL = getBackendUrl();

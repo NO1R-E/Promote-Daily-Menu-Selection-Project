@@ -15,12 +15,32 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const router = useRouter();
 
+  const validateLoginInput = async () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/; 
+    // Minimum eight characters, at least one letter and one number
+    if (!email || !password) {
+      return "Email and password are required.";
+    }
+    if (!emailRegex.test(email)) {
+      return "Please enter a valid email address.";
+    }
+    if (!passwordRegex.test(password)) {
+      return "Password must be at least 8 characters long and contain both letters and numbers.";
+    }
+    return null;
+  };
+
   const handleLogin = async () => {
+    // const validationError = await validateLoginInput();
+    // if (validationError) {
+    //   Alert.alert("Validation Error", validationError);
+    //   return;
+    // }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-
     if (error) {
       Alert.alert("Login Failed", error.message);
     }

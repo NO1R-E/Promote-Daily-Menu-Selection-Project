@@ -106,13 +106,12 @@ async def get_or_create_room(user_id: str, room_id: Optional[str], initial_messa
 
 async def fetch_recipes_cache():
     global MEAL_CACHE
-    TestMode = True  # Set to True for testing with a smaller dataset
+    TestMode = False  # Set to True for testing with a smaller dataset
     try:
         all_rows = []
         page_size = 1000
         start = 0
 
-        # Loop until all rows are fetched across pages
         while True:
             response = (
                 supabase.table("recipe_cache_view")
@@ -152,17 +151,14 @@ async def fetch_recipes_cache():
             weight_g = float(row.get("weight_g") or 100.0)
             weight_factor = weight_g / 100.0
 
-            # 2. Accumulate nutrients with key translation
             raw_nut_name = row.get("nutrient_name")
             nut_amount = row.get("nutrient_amount")
             
             if raw_nut_name and nut_amount is not None:
-                # Map raw key (e.g. 'energy') to ELIXIR key ('Calories')
                 elixir_key = FCD_TO_ELIXIR_MAP.get(raw_nut_name, raw_nut_name)
                 scaled_amount = float(nut_amount) * weight_factor
                 rec["nutrients"][elixir_key] = rec["nutrients"].get(elixir_key, 0.0) + scaled_amount
 
-            # Accumulate tags
             tag_name = row.get("tag_name")
             tag_cat = row.get("tag_category")
             if tag_name and tag_cat:

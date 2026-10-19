@@ -1,18 +1,29 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "expo-router";
-import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useFocusEffect } from "expo-router";
 import { Calendar } from "react-native-calendars";
+import Svg, { Circle } from "react-native-svg";
+import { calculateTargets, parseTargetProfile } from "@/src/utils/nutritionTargets";
 
-// กำหนดเป้าหมายสารอาหารแต่ละวัน
-const TARGETS = { calories: 2000, fat: 65, protein: 60, carbs: 300, sugar: 50, sodium: 2000 };
+// เริ่มต้นที่ 3 มื้อ กดเพิ่มได้อีกสูงสุด 3 มื้อ (รวมแล้วไม่เกิน 6)
+const DEFAULT_MEAL_SLOTS = 3;
+const MAX_MEAL_SLOTS = 6;
 
-// 1. ฟังก์ชันคำนวณสารอาหารจากวัตถุดิบ
+// [ORANGE] พาเลตสีส้มของแอป (ใช้เฉพาะจุดเด่น ไม่ใช่ทั้งหน้า)
+const ORANGE = "#F28E2B"; // สีหลัก (ปุ่ม/ไอคอน/progress)
+const ORANGE_DARK = "#C96A0A"; // ตัวอักษรหัวข้อบนพื้นส้มอ่อน
+const ORANGE_SOFT = "#FFEBD6"; // พื้นการ์ด
+const ORANGE_LIGHT = "#FFF5EA"; // พื้นแถบวันที่ / เส้นแบ่ง
+const ORANGE_TRACK = "#F9D5AE"; // รางของวงแหวน
+const ORANGE_BORDER = "#F6C48F"; // เส้นประปุ่ม Add meal
+
+// คำนวณสารอาหารจากวัตถุดิบ
 const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: number = 1) => {
-  const summary = { calories: 0, fat: 0, protein: 0, carbs: 0, sugar: 0, sodium: 0 };
+  const summary = { calories: 0, fat: 0, protein: 0, carbs: 0, fiber: 0, sugar: 0, sodium: 0 };
 
   // ป้องกันกรณี serving เป็น 0 หรือ null
   const safeServings = servingsCount > 0 ? servingsCount : 1;
@@ -37,6 +48,8 @@ const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: numbe
         summary.protein += calculatedAmount;
       } else if (name.includes("carb")) {
         summary.carbs += calculatedAmount;
+      } else if (name.includes("fiber")) {
+        summary.fiber += calculatedAmount;
       } else if (name.includes("sugar")) {
         summary.sugar += calculatedAmount;
       } else if (name.includes("sodium")) {
@@ -50,6 +63,7 @@ const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: numbe
     fat: summary.fat / safeServings,
     protein: summary.protein / safeServings,
     carbs: summary.carbs / safeServings,
+    fiber: summary.fiber / safeServings,
     sugar: summary.sugar / safeServings,
     sodium: summary.sodium / safeServings,
   };
@@ -57,15 +71,24 @@ const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: numbe
 
 export default function TrackingRecordScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, personalData } = useAuth();
 
-  const [items, setItems] = useState<any[]>([]); // State เก็บข้อมูลจริง
+  const [items, setItems] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
+
+  // เป้าหมายสารอาหารรายวัน คำนวณจาก personalData ใน AuthContext (ถ้าข้อมูลไม่ครบจะ fallback เป็นค่าเดิม)
+  const targets = useMemo(
+    () => calculateTargets(parseTargetProfile(personalData)),
+    [personalData]
+  );
 
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
+
+  // จำนวนมื้อที่แสดงอยู่ตอนนี้ เริ่มที่ 3 แล้วให้กด + เพิ่มเองได้
+  const [mealSlots, setMealSlots] = useState(DEFAULT_MEAL_SLOTS);
 
   // ฟังก์ชันเปลี่ยนวัน
   const changeDate = (daysToShift: number) => {
@@ -81,70 +104,64 @@ export default function TrackingRecordScreen() {
     setSelectedDate(formattedDate);
   };
 
-  // 2. ดึงข้อมูล Daily Records และแมปค่าที่คำนวณได้ใส่ลงใน State
+  // ดึงข้อมูลจาก record_item 
   const fetchDailyRecords = async () => {
-  if (!user) return;
-  try {
-    setLoading(true);
+    if (!user) return;
+    try {
+      setLoading(true);
 
-    const { data, error } = await supabase
-      .from("daily_record")
-      .select(`
-        record_id,
+      const { data, error } = await supabase
+        .from("record_item")
+        .select(`
+        record_item_id,
         record_date,
-        record_item (
-          record_item_id,
-          meal_type,
+        meal_type,
+        recipe_id,
+        recipe:recipes (
           recipe_id,
-          recipe:recipes (
-            recipe_id,
-            recipe_name,
-            img,
-            serving,
-            recipe_ingredients (
-              recipe_ingredient_id,
-              weight_g,
-              ingredients (
-                ingredient_id,
-                ingredient_nutrients (
-                  amount,
-                  nutrients (
-                    nutrient_id,
-                    nutrient_name,
-                    nutrient_unit
-                  )
+          recipe_name,
+          img,
+          serving,
+          recipe_ingredients (
+            recipe_ingredient_id,
+            weight_g,
+            ingredients (
+              ingredient_id,
+              ingredient_nutrients (
+                amount,
+                nutrients (
+                  nutrient_id,
+                  nutrient_name,
+                  nutrient_unit
                 )
               )
             )
           )
         )
       `)
-      .eq("user_id", user.id)
-      .eq("record_date", selectedDate)
-      .maybeSingle();
+        .eq("user_id", user.id)
+        .eq("record_date", selectedDate);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    const recordItems = (data as any)?.record_item;
-
-    if (recordItems && Array.isArray(recordItems)) {
-      const formattedItems = recordItems.map((item: any) => ({
-        ...item,
-        calculatedNutrients: calculateRecipeNutrients(
-          item.recipe?.recipe_ingredients || [],
-          item.recipe?.serving || 1
-        )
-      }));
-      setItems(formattedItems);
-    } else {
-      setItems([]);
+      if (data && Array.isArray(data)) {
+        const formattedItems = data.map((item: any) => ({
+          ...item,
+          calculatedNutrients: calculateRecipeNutrients(
+            item.recipe?.recipe_ingredients || [],
+            item.recipe?.serving || 1
+          )
+        }));
+        setItems(formattedItems);
+      } else {
+        setItems([]);
+      }
+    } catch (error) {
+      console.error("Error fetching records:", error);
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error("Error fetching daily records:", error);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -152,33 +169,113 @@ export default function TrackingRecordScreen() {
     }, [user, selectedDate])
   );
 
+  // ถ้าเคยบันทึกมื้อที่ 4, 5, 6 ไว้ก่อนหน้านี้ ให้ขยายช่องให้ครบ จะได้ไม่หายไปจากหน้าจอ
+  useEffect(() => {
+    const highestRecordedMeal = items.reduce((max, item) => {
+      const match = /Meal (\d+)/.exec(item.meal_type || "");
+      const mealNumber = match ? parseInt(match[1], 10) : 0;
+      return mealNumber > max ? mealNumber : max;
+    }, 0);
+
+    if (highestRecordedMeal > mealSlots) {
+      setMealSlots(Math.min(highestRecordedMeal, MAX_MEAL_SLOTS));
+    }
+  }, [items]);
+
+  // ลบมื้อที่กด "Add meal" เพิ่มมา - ลบได้แค่มื้อล่าสุด (undo การเพิ่ม) และห้ามลบต่ำกว่า 3 มื้อ default
+  // ถ้ามื้อนั้นมีอาหารบันทึกไว้แล้ว ต้องถามยืนยันก่อน เพราะจะลบ record_item ทิ้งไปด้วย
+  const handleRemoveMeal = (mealName: string) => {
+    const mealItem = items.find(
+      (i) => i.meal_type?.toLowerCase() === mealName.toLowerCase()
+    );
+
+    const removeSlot = () => setMealSlots((prev) => Math.max(DEFAULT_MEAL_SLOTS, prev - 1));
+
+    if (!mealItem) {
+      removeSlot();
+      return;
+    }
+
+    Alert.alert(
+      "Remove meal",
+      `${mealName} already has food logged. Removing this slot will also delete that logged food. Continue?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("record_item")
+                .delete()
+                .eq("record_item_id", mealItem.record_item_id);
+              if (error) throw error;
+
+              setItems((prev) => prev.filter((i) => i.record_item_id !== mealItem.record_item_id));
+              removeSlot();
+            } catch (err) {
+              console.error("Error removing meal:", err);
+              Alert.alert("Error", "Could not remove this meal. Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // ลบแค่อาหารที่เลือกไว้ในมื้อนั้น (เอาออกจาก record_item ใน Supabase) แต่ไม่ลบช่องมื้อทิ้ง
+  // ใช้ได้กับทุกมื้อที่มีอาหารอยู่แล้ว ต่างจาก handleRemoveMeal ที่ลบทั้งช่อง
+  const handleDeleteFood = (mealItem: any, mealName: string) => {
+    Alert.alert(
+      "Remove food",
+      `Remove "${mealItem.recipe?.recipe_name || "this food"}" from ${mealName}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("record_item")
+                .delete()
+                .eq("record_item_id", mealItem.record_item_id);
+              if (error) throw error;
+
+              setItems((prev) => prev.filter((i) => i.record_item_id !== mealItem.record_item_id));
+            } catch (err) {
+              console.error("Error removing food:", err);
+              Alert.alert("Error", "Could not remove this food. Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // 3. ปรับการคำนวณผลรวมสารอาหารให้ดึงจาก calculatedNutrients
   const totalCalories = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.calories || 0), 0));
   const totalFat = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fat || 0), 0));
   const totalProtein = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.protein || 0), 0));
   const totalCarbs = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.carbs || 0), 0));
+  const totalFiber = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fiber || 0), 0));
   const totalSugar = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sugar || 0), 0));
   const totalSodium = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sodium || 0), 0));
 
-  // กรองข้อมูลมื้ออาหาร
-  const breakfast = items.find(i => i.meal_type === "breakfast");
-  const lunch = items.find(i => i.meal_type === "lunch");
-  const dinner = items.find(i => i.meal_type === "dinner");
+  // ค่าที่ใช้วาด progress ring ของ Calories
+  const RING_SIZE = 105;
+  const RING_STROKE = 8;
+  const ringRadius = (RING_SIZE - RING_STROKE) / 2;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const caloriePercentage = Math.min(100, (totalCalories / targets.calories) * 100);
+  const ringStrokeDashoffset = ringCircumference - (caloriePercentage / 100) * ringCircumference;
+  const caloriesRemaining = Math.max(0, targets.calories - totalCalories);
 
-  const handleMealPress = (mealType: "breakfast" | "lunch" | "dinner") => {
-    router.push({
-      pathname: "/(app)/(tabs)/record/searchOnTime",
-      params: {
-        meal_type: mealType,
-        selected_date: selectedDate
-      }
-    });
-  };
-  
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF" }}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={ORANGE} />
       </View>
     );
   }
@@ -191,14 +288,14 @@ export default function TrackingRecordScreen() {
         <View style={styles.dateHeader}>
           <View style={styles.datePickerContainer}>
             <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(-1)}>
-              <Ionicons name="chevron-back" size={24} color="#007AFF" />
+              <Ionicons name="chevron-back" size={24} color={ORANGE} />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.dateSelectButton}
               onPress={() => setIsCalendarVisible(true)}
             >
-              <Ionicons name="calendar-outline" size={20} color="#007AFF" style={{ marginRight: 6 }} />
+              <Ionicons name="calendar-outline" size={20} color={ORANGE} style={{ marginRight: 6 }} />
               <Text style={styles.dateDisplayTitle}>
                 {selectedDate === new Date().toISOString().split("T")[0] ? "Today " : ""}
                 ({selectedDate})
@@ -206,72 +303,139 @@ export default function TrackingRecordScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(1)}>
-              <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+              <Ionicons name="chevron-forward" size={24} color={ORANGE} />
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity
-            style={styles.hamburgerButton}
+            style={styles.chartButton}
             onPress={() => router.push("/(app)/(tabs)/record/chart")}
           >
-            <Ionicons name="analytics-outline" size={28} color="#333333" />
+            <Ionicons name="analytics-outline" size={22} color="#FFFFFF" />
+            <Text style={styles.chartButtonLabel}>Stats</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ส่วนที่ 2: Dashboard (Calories & On Time) */}
+        {/* ส่วนที่ 2: Dashboard (Meals On Time ด้านบน / Calories ด้านล่าง) */}
         <View style={styles.topDashboard}>
 
-          {/* ฝั่งซ้าย: calories */}
-          <View style={styles.calorieCard}>
-            <Text style={styles.cardTitle}>Calories</Text>
-            <View style={styles.circleOutline}>
-              <Text style={styles.circleNumber}>{totalCalories}</Text>
-              <Text style={styles.circleUnit}>kcal</Text>
-            </View>
+          {/* Meals On Time */}
+          <View style={styles.onTimeCard}>
+            <Text style={styles.cardTitle}>Meals On Time</Text>
+
+            {/* แสดงรายการมื้อตามจำนวน mealSlots ปัจจุบัน เริ่มที่ 3 แล้วกด + เพิ่มเองได้ */}
+            {Array.from({ length: mealSlots }, (_, i) => `Meal ${i + 1}`).map((mealName, index) => {
+              // หาอาหารรายการแรกของมื้อนี้ (ถ้ามี)
+              const mealItem = items.find(
+                (i) => i.meal_type?.toLowerCase() === mealName.toLowerCase()
+              );
+
+              // ลบได้แค่มื้อล่าสุดที่เพิ่มมา (เกินจาก 3 มื้อ default) เท่านั้น กันปัญหาเลขมื้อสลับกัน
+              const canRemove = mealSlots > DEFAULT_MEAL_SLOTS && index === mealSlots - 1;
+
+              return (
+                <TouchableOpacity
+                  key={mealName}
+                  style={styles.mealRow}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(app)/(tabs)/record/searchOnTime",
+                      params: {
+                        meal_type: mealName,
+                        selected_date: selectedDate,
+                      },
+                    })
+                  }
+                >
+                  <Image
+                    source={{
+                      uri:
+                        mealItem?.recipe?.img ||
+                        "https://via.placeholder.com/40",
+                    }}
+                    style={styles.mealThumb}
+                  />
+                  <View style={styles.mealInfo}>
+                    <Text style={styles.mealName}>
+                      {mealItem?.recipe?.recipe_name || mealName}
+                    </Text>
+                  </View>
+                  {mealItem ? (
+                    <View style={styles.mealDoneActions}>
+                      <View style={styles.checkedCircle}>
+                        <Ionicons name="checkmark" size={14} color="#34C759" />
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteFood(mealItem, mealName)}
+                        style={styles.deleteFoodBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Ionicons name="add" size={18} color={ORANGE} />
+                  )}
+                  {canRemove && (
+                    <TouchableOpacity
+                      onPress={() => handleRemoveMeal(mealName)}
+                      style={styles.removeMealBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+
+            {/* ปุ่มเพิ่มมื้อ - กดได้จนกว่าจะครบ 6 มื้อ */}
+            {mealSlots < MAX_MEAL_SLOTS && (
+              <TouchableOpacity
+                style={styles.addMealRow}
+                onPress={() => setMealSlots((prev) => prev + 1)}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={ORANGE} />
+                <Text style={styles.addMealText}>Add meal</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {/* ฝั่งขวา: On Time */}
-          <View style={styles.onTimeCard}>
-            <Text style={styles.cardTitle}>On Time</Text>
-
-            {/* breakfast */}
-            <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("breakfast")}>
-              <Image source={{ uri: breakfast?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
-              <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{breakfast?.recipe?.recipe_name || "Breakfast"}</Text>
+          {/* Calories */}
+          <View style={styles.calorieCard}>
+            <Text style={styles.cardTitle}>Calories</Text>
+            <View style={styles.circleWrapper}>
+              <Svg width={RING_SIZE} height={RING_SIZE}>
+                <Circle
+                  cx={RING_SIZE / 2}
+                  cy={RING_SIZE / 2}
+                  r={ringRadius}
+                  stroke={ORANGE_TRACK}
+                  strokeWidth={RING_STROKE}
+                  fill="none"
+                />
+                <Circle
+                  cx={RING_SIZE / 2}
+                  cy={RING_SIZE / 2}
+                  r={ringRadius}
+                  stroke={ORANGE}
+                  strokeWidth={RING_STROKE}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeDasharray={`${ringCircumference}, ${ringCircumference}`}
+                  strokeDashoffset={ringStrokeDashoffset}
+                  rotation="-90"
+                  origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
+                />
+              </Svg>
+              <View style={styles.circleTextOverlay}>
+                <Text style={styles.circleNumber}>{totalCalories}</Text>
+                <Text style={styles.circleUnit}>kcal</Text>
               </View>
-              {breakfast ? (
-                <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
-              ) : (
-                <Ionicons name="add" size={18} color="#007AFF" />
-              )}
-            </TouchableOpacity>
-
-            {/* lunch */}
-            <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("lunch")}>
-              <Image source={{ uri: lunch?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
-              <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{lunch?.recipe?.recipe_name || "Lunch"}</Text>
-              </View>
-              {lunch ? (
-                <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
-              ) : (
-                <Ionicons name="add" size={18} color="#007AFF" />
-              )}
-            </TouchableOpacity>
-
-            {/* dinner */}
-            <TouchableOpacity style={styles.mealRow} onPress={() => handleMealPress("dinner")}>
-              <Image source={{ uri: dinner?.recipe?.img || "https://via.placeholder.com/40" }} style={styles.mealThumb} />
-              <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{dinner?.recipe?.recipe_name || "Dinner"}</Text>
-              </View>
-              {dinner ? (
-                <View style={styles.checkedCircle}><Ionicons name="checkmark" size={14} color="#34C759" /></View>
-              ) : (
-                <Ionicons name="add" size={18} color="#007AFF" />
-              )}
-            </TouchableOpacity>
+            </View>
+            <Text style={styles.calorieRemainingText}>
+              {caloriesRemaining} kcal left of {targets.calories}
+            </Text>
           </View>
         </View>
 
@@ -281,37 +445,37 @@ export default function TrackingRecordScreen() {
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#000000" }]} />
             <Text style={styles.macroLabel}>Fat</Text>
-            <Text style={styles.macroValue}>{totalFat}/{TARGETS.fat}g</Text>
+            <Text style={styles.macroValue}>{totalFat}/{targets.fat}g</Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#2F80ED" }]} />
             <Text style={styles.macroLabel}>Protein</Text>
-            <Text style={styles.macroValue}>{totalProtein}/{TARGETS.protein}g</Text>
+            <Text style={styles.macroValue}>{totalProtein}/{targets.protein}g</Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#F2994A" }]} />
             <Text style={styles.macroLabel}>Carbs</Text>
-            <Text style={styles.macroValue}>{totalCarbs}/{TARGETS.carbs}g</Text>
+            <Text style={styles.macroValue}>{totalCarbs}/{targets.carbs}g</Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#27AE60" }]} />
-            <Text style={styles.macroLabel}>Macro</Text>
-            <Text style={styles.macroValue}>0/{TARGETS.protein}g</Text>
+            <Text style={styles.macroLabel}>Fiber</Text>
+            <Text style={styles.macroValue}>{totalFiber}/{targets.fiber}g</Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#AADEF5" }]} />
             <Text style={styles.macroLabel}>Sugar</Text>
-            <Text style={styles.macroValue}>{totalSugar}/{TARGETS.sugar}g</Text>
+            <Text style={styles.macroValue}>{totalSugar}/{targets.sugar}g</Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#EB5757" }]} />
             <Text style={styles.macroLabel}>Sodium</Text>
-            <Text style={styles.macroValue}>{totalSodium}/{TARGETS.sodium}g</Text>
+            <Text style={styles.macroValue}>{totalSodium}/{targets.sodium}mg</Text>
           </View>
 
         </View>
@@ -341,11 +505,11 @@ export default function TrackingRecordScreen() {
                   setIsCalendarVisible(false);
                 }}
                 markedDates={{
-                  [selectedDate]: { selected: true, selectedColor: "#007AFF", selectedTextColor: "white" }
+                  [selectedDate]: { selected: true, selectedColor: ORANGE, selectedTextColor: "white" }
                 }}
                 theme={{
-                  todayTextColor: "#007AFF",
-                  arrowColor: "#007AFF",
+                  todayTextColor: ORANGE,
+                  arrowColor: ORANGE,
                   textDayFontWeight: "500",
                 }}
               />
@@ -375,27 +539,44 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 16, fontWeight: "bold", color: "#1A1A1A" },
   iconRight: { marginLeft: 16 },
 
-  // Dashboard Zone
-  topDashboard: { flexDirection: "row", justifyContent: "space-between", marginBottom: 25 },
-  calorieCard: { backgroundColor: "#E9E9EE", width: "47%", borderRadius: 20, padding: 15, alignItems: "center", justifyContent: "center" },
-  onTimeCard: { backgroundColor: "#E9E9EE", width: "49%", borderRadius: 20, padding: 12 },
-  cardTitle: { fontSize: 14, color: "#666", alignSelf: "flex-start", marginBottom: 10 },
+  // Dashboard Zone - เรียงเป็นแนวตั้ง: Meals On Time อยู่บน, Calories อยู่ล่าง
+  topDashboard: { flexDirection: "column", marginBottom: 25 },
+  calorieCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 15, alignItems: "center", justifyContent: "center", marginTop: 15 },
+  onTimeCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 12 },
+  cardTitle: { fontSize: 14, fontWeight: "600", color: ORANGE_DARK, alignSelf: "flex-start", marginBottom: 10 },
 
   // Calorie Circle
-  circleOutline: { width: 105, height: 105, borderRadius: 52.5, borderWidth: 6, borderColor: "#007AFF", justifyContent: "center", alignItems: "center", backgroundColor: "#FFF" },
+  circleWrapper: { width: 105, height: 105, justifyContent: "center", alignItems: "center" },
+  circleTextOverlay: { position: "absolute", justifyContent: "center", alignItems: "center" },
   circleNumber: { fontSize: 22, fontWeight: "bold", color: "#333" },
   circleUnit: { fontSize: 12, color: "#888" },
+  calorieRemainingText: { fontSize: 12, color: "#666", marginTop: 10 },
 
   // Meal Rows inside On Time Card
-  mealRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 6, borderRadius: 25, marginBottom: 6 },
-  mealThumb: { width: 34, height: 34, borderRadius: 17, marginRight: 8 },
+  mealRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 8, borderRadius: 26, marginBottom: 8 },
+  mealThumb: { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
   mealInfo: { flex: 1 },
-  mealName: { fontSize: 11, fontWeight: "600", color: "#333" },
+  mealName: { fontSize: 13, fontWeight: "600", color: "#333" },
   checkedCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#E8F5E9", justifyContent: "center", alignItems: "center" },
+  mealDoneActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  deleteFoodBtn: { padding: 2 },
+  removeMealBtn: { marginLeft: 8, padding: 2 },
+  addMealRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: ORANGE_BORDER,
+    borderRadius: 25,
+    paddingVertical: 8,
+    marginTop: 2,
+  },
+  addMealText: { fontSize: 12, fontWeight: "600", color: ORANGE, marginLeft: 6 },
 
   // Macros Zone
   macroSection: { marginTop: 5 },
-  macroRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderColor: "#F2F2F7" },
+  macroRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderColor: ORANGE_LIGHT },
   colorDot: { width: 14, height: 14, borderRadius: 7, marginRight: 15 },
   macroLabel: { fontSize: 16, fontWeight: "600", color: "#1A1A1A", flex: 1 },
   macroValue: { fontSize: 16, color: "#666", fontWeight: "500" },
@@ -403,7 +584,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#F2F2F7",
+    backgroundColor: ORANGE_LIGHT,
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 15,
@@ -452,23 +633,25 @@ const styles = StyleSheet.create({
   closeCalendarBtn: {
     marginTop: 15,
     paddingVertical: 12,
-    backgroundColor: "#F2F2F7",
+    backgroundColor: ORANGE_LIGHT,
     borderRadius: 12,
     alignItems: "center",
   },
   closeCalendarText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#FF3B30",
+    color: ORANGE_DARK,
   },
-  hamburgerButton: {
-    backgroundColor: "#F2F2F7",
-    width: 46,
-    height: 46,
+  chartButton: {
+    backgroundColor: ORANGE,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     borderRadius: 15,
     justifyContent: "center",
     alignItems: "center",
     marginLeft: 10,
     marginTop: 5,
+    minWidth: 54,
   },
+  chartButtonLabel: { fontSize: 10, fontWeight: "600", color: "#FFFFFF", marginTop: 3 },
 });

@@ -5,14 +5,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
-const PAGE_SIZE = 20; // กำหนดจำนวนการดึงข้อมูลทีละ 20 รายการ
+const PAGE_SIZE = 20;
 
 export default function FoodSearchScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { meal_type, selected_date } = useLocalSearchParams<{ meal_type: string; selected_date: string }>();
 
-  // State สำหรับเก็บข้อมูลและจัดการ Pagination
+  // state หลักของหน้านี้ - รายการเมนู, คำค้นหา, และ state ของ pagination
   const [recipes, setRecipes] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -21,7 +21,7 @@ export default function FoodSearchScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ฟังก์ชันดึงข้อมูลแบบแบ่งหน้า (Pagination) + กรองคำค้นหา
+  // ดึงเมนูทีละหน้า ถ้ามีคำค้นหาก็กรองไปด้วยเลย
   const fetchRecipesFromDB = async (queryText: string, pageIndex: number, isNewSearch = false) => {
     try {
       if (isNewSearch) {
@@ -39,7 +39,7 @@ export default function FoodSearchScreen() {
         .range(from, to)
         .order("recipe_id", { ascending: true });
 
-      // ถ้ามีการพิมพ์ค้นหา ให้ใช้ ilike เพื่อกรองข้อมูล
+      // มีคำค้นหาค่อย filter ด้วย ilike ไม่งั้นดึงมาทั้งหมด
       if (queryText.trim() !== "") {
         query = query.ilike("recipe_name", `%${queryText.trim()}%`);
       }
@@ -49,7 +49,7 @@ export default function FoodSearchScreen() {
       if (error) throw error;
 
       if (data) {
-        // เช็กว่าข้อมูลหมดหรือยัง
+        // ได้น้อยกว่า PAGE_SIZE แปลว่าหมดแล้ว ไม่ต้องโหลดต่อ
         if (data.length < PAGE_SIZE) {
           setHasMore(false);
         } else {
@@ -71,14 +71,14 @@ export default function FoodSearchScreen() {
     }
   };
 
-  // เรียกดึงข้อมูลใหม่ทุกครั้งที่ค้นหาคำใหม่
+  // พิมพ์คำค้นหาใหม่ทีไร รีเซ็ต page แล้วดึงใหม่ตั้งแต่หน้าแรก
   useEffect(() => {
     setPage(0);
     setHasMore(true);
     fetchRecipesFromDB(searchQuery, 0, true);
   }, [searchQuery]);
 
-  // ฟังก์ชันเรียกเมื่อผู้ใช้เลื่อนลงมาล่างสุด (Infinite Scroll)
+  // เลื่อนใกล้ล่างสุดแล้วค่อยโหลดหน้าถัดไป
   const handleLoadMore = () => {
     if (!isFetchingMore && !isLoadingRecipes && hasMore) {
       const nextPage = page + 1;
@@ -88,58 +88,38 @@ export default function FoodSearchScreen() {
   };
 
   const handleSelectFood = async (recipeId: number, recipeName: string) => {
-    if (!user) {
-      Alert.alert("ข้อผิดพลาด", "ไม่พบข้อมูลผู้ใช้งาน");
-      return;
-    }
+  if (!user) {
+    Alert.alert("ข้อผิดพลาด", "ไม่พบข้อมูลผู้ใช้งาน");
+    return;
+  }
 
-    const targetDate = selected_date || new Date().toISOString().split("T")[0];
+  const targetDate = selected_date || new Date().toISOString().split("T")[0];
 
-    try {
-      setIsSubmitting(true);
+  try {
+    setIsSubmitting(true);
 
-      let { data: dailyRecord, error: fetchError } = await supabase
-        .from("daily_record")
-        .select("record_id")
-        .eq("user_id", user.id)
-        .eq("record_date", targetDate)
-        .maybeSingle();
+    // insert ลง record_item ทีเดียวจบ ไม่ต้องเช็คว่ามีแถวเดิมอยู่ก่อนไหม
+    const { error: insertItemError } = await supabase
+      .from("record_item")
+      .insert({
+        user_id: user.id,            // ID ผู้ใช้งาน
+        record_date: targetDate,     // วันที่บันทึก
+        meal_type: meal_type,        // ชื่อมื้อ (เช่น "มื้อที่ 1", "Snack")
+        recipe_id: recipeId          // ID เมนูอาหาร
+      });
 
-      if (fetchError) throw fetchError;
+    if (insertItemError) throw insertItemError;
 
-      let currentRecordId = dailyRecord?.record_id;
+    Alert.alert("สำเร็จ", `บันทึก ${recipeName} ลงใน ${meal_type} เรียบร้อยแล้ว!`);
+    router.back();
 
-      if (!dailyRecord) {
-        const { data: newRecord, error: insertRecordError } = await supabase
-          .from("daily_record")
-          .insert({ user_id: user.id, record_date: targetDate })
-          .select("record_id")
-          .single();
-
-        if (insertRecordError) throw insertRecordError;
-        currentRecordId = newRecord.record_id;
-      }
-
-      const { error: insertItemError } = await supabase
-        .from("record_item")
-        .insert({
-          record_id: currentRecordId,
-          meal_type: meal_type,
-          recipe_id: recipeId
-        });
-
-      if (insertItemError) throw insertItemError;
-
-      Alert.alert("สำเร็จ", `บันทึก ${recipeName} ลงในมื้อ ${meal_type} เรียบร้อยแล้ว!`);
-      router.back();
-
-    } catch (error: any) {
-      console.error("Error saving record:", error);
-      Alert.alert("เกิดข้อผิดพลาด", error.message || "ไม่สามารถบันทึกข้อมูลได้");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  } catch (error: any) {
+    console.error("Error saving record:", error);
+    Alert.alert("เกิดข้อผิดพลาด", error.message || "ไม่สามารถบันทึกข้อมูลได้");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   return (
     <View style={styles.container}>
@@ -151,7 +131,7 @@ export default function FoodSearchScreen() {
         <Text style={styles.headerTitle}>Select a menu at {meal_type}</Text>
       </View>
 
-      {/* 1. เพิ่มกล่องค้นหา (Search Box) */}
+      {/* กล่องค้นหาเมนู */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
         <TextInput
@@ -168,7 +148,7 @@ export default function FoodSearchScreen() {
         )}
       </View>
 
-      {/* สภาพการโหลดแบบประมวลผลคำสั่งหรือเปิดครั้งแรก */}
+      {/* กำลังโหลดครั้งแรก หรือกำลังบันทึกอยู่ ก็โชว์ spinner แทน list ไปก่อน */}
       {isLoadingRecipes || isSubmitting ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -177,7 +157,7 @@ export default function FoodSearchScreen() {
           </Text>
         </View>
       ) : (
-        /* 2. แสดงผลด้วย FlatList + Infinite Scroll ทีละ 20 */
+        /* list เมนู โหลดเพิ่มทีละ 20 ตอนเลื่อนถึงล่าง */
         <FlatList
           data={recipes}
           keyExtractor={(item, index) => `${item.recipe_id}-${index}`}

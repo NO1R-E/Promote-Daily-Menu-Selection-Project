@@ -1,7 +1,6 @@
-// app/(onboarding)/index.tsx
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
-import { Alert } from "react-native";
+import { Alert, ActivityIndicator, View } from "react-native";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import PersonalDataForm from "@/components/forms/PersonalDataForm";
@@ -10,31 +9,84 @@ import GoalForm from "@/components/forms/GoalForm";
 import PreferenceForm from "@/components/forms/PreferenceForm";
 import { OnboardingFormData } from "@/src/types/OnboardingType";
 
-// Step order — step 5 (meal card swipe, refining dietary_prefs further)
-// is not built yet. It would slot in right after PreferenceForm, still
-// writing into the same dietary_prefs array before the final submit.
 const TOTAL_STEPS = 4;
 
+const BLANK_FORM: OnboardingFormData = {
+  gender: "",
+  age: "",
+  weight: "",
+  height: "",
+  intensity_exercise: "",
+  goal: "",
+  user_prefs: [],
+  filter_tags: [],
+};
+
 export default function OnboardingWizard() {
+  const [loadingDraft, setLoadingDraft] = useState(true);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
   const { user, refreshUserData } = useAuth();
 
-  const [formData, setFormData] = useState<OnboardingFormData>({
-    gender: "",
-    age: "",
-    weight: "",
-    height: "",
-    intensity_exercise: "",
-    goal: "",
-    user_prefs: [],
-    filter_tags: [],
-  });
+  const [formData, setFormData] = useState<OnboardingFormData>(BLANK_FORM);
 
-  const handleNext = (stepData: Partial<OnboardingFormData>) => {
-    setFormData((prev) => ({ ...prev, ...stepData }));
-    setStep((s) => s + 1);
+  // โหลด draft ที่เคยเก็บไว้ (ถ้ามี) ตอนเปิดหน้านี้ครั้งแรก แทนที่จะเริ่มที่ step 1 ว่างเปล่าเสมอ
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (!user) {
+        setLoadingDraft(false);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from("onboarding_drafts")
+          .select("step, form_data")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+          setStep(data.step || 1);
+          setFormData({ ...BLANK_FORM, ...(data.form_data || {}) });
+        }
+      } catch (error) {
+        console.error("Error loading onboarding draft:", error);
+      } finally {
+        setLoadingDraft(false);
+      }
+    };
+
+    loadDraft();
+  }, [user]);
+
+  // เซฟ draft ทุกครั้งที่กด Next - เก็บแค่ formData + step ปัจจุบัน ไม่แตะตารางจริงเลย
+  const saveDraft = async (nextStep: number, mergedData: OnboardingFormData) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase.from("onboarding_drafts").upsert(
+        {
+          user_id: user.id,
+          step: nextStep,
+          form_data: mergedData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+      if (error) throw error;
+    } catch (error) {
+      // เซฟ draft ไม่สำเร็จไม่ควรบล็อกผู้ใช้ไม่ให้ทำ onboarding ต่อ แค่ log ไว้เฉยๆ
+      console.error("Error saving onboarding draft:", error);
+    }
+  };
+
+  const handleNext = async (stepData: Partial<OnboardingFormData>) => {
+    const merged = { ...formData, ...stepData };
+    setFormData(merged);
+    const nextStep = step + 1;
+    setStep(nextStep);
+    await saveDraft(nextStep, merged);
   };
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
@@ -60,6 +112,9 @@ export default function OnboardingWizard() {
       });
       if (error) throw error;
 
+      // onboarding เสร็จสมบูรณ์แล้ว ไม่ต้องเก็บ draft ไว้อีกต่อไป
+      await supabase.from("onboarding_drafts").delete().eq("user_id", user.id);
+
       await refreshUserData();
       router.replace("/(app)/(tabs)/chatbot");
     } catch (error: any) {
@@ -68,6 +123,14 @@ export default function OnboardingWizard() {
       setSubmitting(false);
     }
   };
+
+  if (loadingDraft) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
 
   return (
     <>

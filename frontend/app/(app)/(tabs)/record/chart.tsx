@@ -32,9 +32,142 @@ const calculateRecipeCalories = (recipeIngredients: any[], servingCount: number 
   return totalCal / safeServings;
 };
 
+// ===== [BMI] การ์ด BMI (คำนวณจากน้ำหนัก/ส่วนสูง ไม่มี column bmi) =====
+// สีหลักของแอป
+const ORANGE = "#F28E2B";
+
+// ช่วงของแถบสเกล (ค่า BMI ที่ต่ำ/สูงกว่านี้จะถูกตรึงไว้ที่ขอบ)
+const SCALE_MIN = 15;
+const SCALE_MAX = 35;
+
+// เกณฑ์สำหรับคนเอเชีย/ไทย ถ้าอยากใช้เกณฑ์ WHO ให้เปลี่ยน 23 -> 25 และ 25 -> 30
+const SEGMENTS = [
+  { label: "Underweight", from: 15, to: 18.5, color: "#3B82F6" },
+  { label: "Normal", from: 18.5, to: 23, color: "#34C759" },
+  { label: "Overweight", from: 23, to: 25, color: ORANGE },
+  { label: "Obese", from: 25, to: 35, color: "#FF3B30" },
+];
+
+const getCategory = (bmi: number) => {
+  if (bmi < 18.5) return SEGMENTS[0];
+  if (bmi < 23) return SEGMENTS[1];
+  if (bmi < 25) return SEGMENTS[2];
+  return SEGMENTS[3];
+};
+
+type Props = {
+  weightKg?: number | null;
+  heightCm?: number | null;
+};
+
+function BmiCard({ weightKg, heightCm }: Props) {
+  const weight = Number(weightKg);
+  const heightM = Number(heightCm) / 100;
+
+  // ถ้ายังไม่มีน้ำหนัก/ส่วนสูง ให้แสดงข้อความแทน
+  if (!weight || !heightM) {
+    return (
+      <View style={bmiStyles.card}>
+        <Text style={bmiStyles.title}>BMI</Text>
+        <Text style={bmiStyles.emptyText}>Add your weight and height in Personal Data to see your BMI</Text>
+      </View>
+    );
+  }
+
+  const bmi = weight / (heightM * heightM);
+  const category = getCategory(bmi);
+
+  // ตำแหน่งตัวชี้บนแถบ (เป็น % ของความกว้าง)
+  const clamped = Math.min(Math.max(bmi, SCALE_MIN), SCALE_MAX);
+  const pointerLeft = ((clamped - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100;
+
+  return (
+    <View style={bmiStyles.card}>
+      <View style={bmiStyles.headerRow}>
+        <Text style={bmiStyles.title}>BMI</Text>
+        <View style={[bmiStyles.chip, { backgroundColor: category.color + "22" }]}>
+          <Text style={[bmiStyles.chipText, { color: category.color }]}>{category.label}</Text>
+        </View>
+      </View>
+
+      <Text style={bmiStyles.bmiValue}>{bmi.toFixed(1)}</Text>
+
+      {/* แถบสเกล: ความกว้างของแต่ละช่วงเป็นสัดส่วนตามช่วง BMI จริง */}
+      <View style={bmiStyles.scaleWrapper}>
+        <View style={bmiStyles.scaleBar}>
+          {SEGMENTS.map((s) => (
+            <View
+              key={s.label}
+              style={{ flex: s.to - s.from, backgroundColor: s.color, opacity: s === category ? 1 : 0.35 }}
+            />
+          ))}
+        </View>
+
+        {/* ตัวชี้ตำแหน่ง BMI */}
+        <View style={[bmiStyles.pointer, { left: `${pointerLeft}%` }]} />
+      </View>
+
+      {/* ตัวเลขขอบเขตแต่ละช่วง วางตามตำแหน่งจริงบนแถบ */}
+      <View style={bmiStyles.scaleLabels}>
+        {[18.5, 23, 25].map((v) => (
+          <Text
+            key={v}
+            style={[bmiStyles.scaleLabelText, { left: `${((v - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100}%` }]}
+          >
+            {v}
+          </Text>
+        ))}
+      </View>
+
+      <View style={bmiStyles.detailRow}>
+        <Text style={bmiStyles.detailText}>Weight {weight} kg</Text>
+        <Text style={bmiStyles.detailText}>Height {Number(heightCm)} cm</Text>
+      </View>
+    </View>
+  );
+}
+
+const bmiStyles = StyleSheet.create({
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { fontSize: 14, fontWeight: "600", color: "#C96A0A" },
+  chip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  chipText: { fontSize: 12, fontWeight: "700" },
+  bmiValue: { fontSize: 40, fontWeight: "bold", color: "#333", marginTop: 6, marginBottom: 14 },
+
+  scaleWrapper: { justifyContent: "center" },
+  scaleBar: { flexDirection: "row", height: 10, borderRadius: 5, overflow: "hidden" },
+  pointer: {
+    position: "absolute",
+    width: 16,
+    height: 16,
+    marginLeft: -8,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 3,
+    borderColor: "#333",
+  },
+  scaleLabels: { height: 14, marginTop: 6 },
+  scaleLabelText: { position: "absolute", fontSize: 10, color: "#8E8E93", marginLeft: -8 },
+
+  detailRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 14 },
+  detailText: { fontSize: 13, color: "#8E8E93" },
+  emptyText: { fontSize: 13, color: "#8E8E93", marginTop: 8 },
+});
+
+// ===== หน้าจอสถิติแคลอรี่ =====
 export default function CalorieChartScreen() {
     const router = useRouter();
-    const { user } = useAuth();
+    const { user, personalData } = useAuth();
 
     const [loading, setLoading] = useState(true);
     const [weeklyCalories, setWeeklyCalories] = useState<number[]>([0, 0, 0, 0, 0, 0, 0]);
@@ -122,7 +255,7 @@ export default function CalorieChartScreen() {
     if (loading) {
         return (
             <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
+                <ActivityIndicator size="large" color="#C96A0A" />
             </View>
         );
     }
@@ -166,15 +299,20 @@ export default function CalorieChartScreen() {
                             backgroundGradientFrom: "#FFFFFF",
                             backgroundGradientTo: "#FFFFFF",
                             decimalPlaces: 0,
-                            color: (opacity = 1) => `rgba(0, 122, 255, ${opacity})`,
+                            color: (opacity = 1) => `rgba(242, 142, 43, ${opacity})`,
                             labelColor: (opacity = 1) => `rgba(142, 142, 147, ${opacity})`,
                             style: { borderRadius: 16 },
-                            propsForDots: { r: "5", strokeWidth: "2", stroke: "#007AFF" },
+                            propsForDots: { r: "5", strokeWidth: "2", stroke: "#C96A0A" },
                             propsForBackgroundLines: { strokeDasharray: "5", stroke: "#E5E5EA" }
                         }}
                         bezier
                         style={styles.lineChartStyle}
                     />
+                </View>
+
+                {/* [BMI] การ์ด BMI: ชื่อ column weight/height ต้องตรงกับตาราง personalData ของคุณ */}
+                <View style={{ marginTop: 20 }}>
+                    <BmiCard weightKg={personalData?.weight} heightCm={personalData?.height} />
                 </View>
             </ScrollView>
         </View>
@@ -187,9 +325,9 @@ const styles = StyleSheet.create({
     header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: "#FFFFFF" },
     backButton: { width: 40, height: 40, justifyContent: "center" },
     headerTitle: { fontSize: 18, fontWeight: "bold", color: "#333" },
-    scrollContent: { padding: 20 },
+    scrollContent: { padding: 20, paddingBottom: 40 },
 
-    summaryCard: { backgroundColor: "#007AFF", borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: "#007AFF", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    summaryCard: { backgroundColor: "#F28E2B", borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: "#C96A0A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
     summaryLabel: { color: "rgba(255,255,255,0.8)", fontSize: 14, fontWeight: "500", marginBottom: 5 },
     summaryValue: { color: "#FFFFFF", fontSize: 28, fontWeight: "bold" },
     summaryUnit: { fontSize: 16, fontWeight: "normal", color: "#FFFFFF" },

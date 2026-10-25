@@ -19,7 +19,7 @@ import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import ReportModal from "@/components/ReportModal";
 
-type Tab = "hot" | "recent";
+type Tab = "hot" | "recent" | "saved";
 
 type ForumPost = {
   recipe_forum_id: number;
@@ -30,6 +30,7 @@ type ForumPost = {
   created_at: string;
   feed_score: number;
   is_liked?: boolean;
+  is_saved?: boolean;
   profiles: {
     username: string;
     display_name: string | null;
@@ -86,7 +87,11 @@ export default function ForumIndex() {
       recipe_id, recipe_name, serving, img, recipe_body, additional_info, status,
       recipe_ingredients ( weight_g, ingredients ( ingredient_id, norm_en ) )
     )
-    ${user ? `, recipe_forum_likes!left ( user_id )` : ""}
+    ${
+      user
+        ? `, recipe_forum_likes!left ( user_id ), recipe_forum_saved!left ( user_id )`
+        : ""
+    }
   `;
 
   const fetchPage = async (reset: boolean) => {
@@ -109,9 +114,21 @@ export default function ForumIndex() {
 
     if (user) {
       q = q.eq("recipe_forum_likes.user_id", user.id);
+      q = q.eq("recipe_forum_saved.user_id", user.id);
     }
 
-    if (tab === "hot") {
+    if (tab === "saved") {
+      if (!user) {
+        setPosts([]);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+      // Inner join filter for saved tab
+      q = q.not("recipe_forum_saved", "is", null);
+      q = q.order("recipe_forum_id", { ascending: false });
+      if (!reset && last) q = q.lt("recipe_forum_id", last.recipe_forum_id);
+    } else if (tab === "hot") {
       q = q
         .order("feed_score", { ascending: false })
         .order("recipe_forum_id", { ascending: true });
@@ -143,6 +160,10 @@ export default function ForumIndex() {
           ? Array.isArray(p.recipe_forum_likes) &&
             p.recipe_forum_likes.length > 0
           : false,
+        is_saved: user
+          ? Array.isArray(p.recipe_forum_saved) &&
+            p.recipe_forum_saved.length > 0
+          : false,
       })) as ForumPost[];
 
     setPosts(reset ? page : [...list, ...page]);
@@ -172,7 +193,7 @@ export default function ForumIndex() {
 
     const currentlyLiked = targetPost.is_liked ?? false;
 
-    // 1. Optimistic Update
+    // Optimistic Update
     setPosts((prev) =>
       prev.map((p) => {
         if (p.recipe_forum_id === forumId) {
@@ -204,7 +225,6 @@ export default function ForumIndex() {
       );
     }
 
-    // 2. Database Sync
     if (currentlyLiked) {
       const { error } = await supabase
         .from("recipe_forum_likes")
@@ -214,7 +234,6 @@ export default function ForumIndex() {
 
       if (error) {
         console.error("Error unliking post:", error);
-        // Rollback on error
         fetchPage(true);
       }
     } else {
@@ -224,7 +243,57 @@ export default function ForumIndex() {
 
       if (error) {
         console.error("Error liking post:", error);
-        // Rollback on error
+        fetchPage(true);
+      }
+    }
+  };
+
+  const handleToggleSave = async (forumId: number) => {
+    if (!user) {
+      Alert.alert("Authentication Required", "Please log in to save posts.");
+      return;
+    }
+
+    const targetPost = posts.find((p) => p.recipe_forum_id === forumId);
+    const currentlySaved =
+      targetPost?.is_saved ?? selectedPost?.is_saved ?? false;
+
+    // Optimistic Update
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.recipe_forum_id === forumId) {
+          return { ...p, is_saved: !currentlySaved };
+        }
+        return p;
+      }),
+    );
+
+    if (selectedPost && selectedPost.recipe_forum_id === forumId) {
+      setSelectedPost((prev) =>
+        prev ? { ...prev, is_saved: !currentlySaved } : null,
+      );
+    }
+
+    if (currentlySaved) {
+      const { error } = await supabase
+        .from("recipe_forum_saved")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("forum_id", forumId);
+
+      if (error) {
+        console.error("Error unsaving post:", error);
+        fetchPage(true);
+      } else if (tab === "saved") {
+        setPosts((prev) => prev.filter((p) => p.recipe_forum_id !== forumId));
+      }
+    } else {
+      const { error } = await supabase
+        .from("recipe_forum_saved")
+        .insert({ user_id: user.id, forum_id: forumId });
+
+      if (error) {
+        console.error("Error saving post:", error);
         fetchPage(true);
       }
     }
@@ -295,56 +364,39 @@ export default function ForumIndex() {
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
+        <View style={styles.tabRow}>
+          {(["hot", "recent", "saved"] as const).map((tabKey) => {
+            const isActive = tab === tabKey;
+            return (
+              <TouchableOpacity
+                key={tabKey}
+                style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+                onPress={() => setTab(tabKey)}
+              >
+                <Text
+                  style={[styles.tabText, isActive && styles.tabTextActive]}
+                >
+                  {tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Create Post Button aligned to the right */}
         <TouchableOpacity
           style={styles.chatIconBtn}
           onPress={() => router.push("/(app)/(tabs)/forum/create-post")}
         >
           <Ionicons
             name="chatbubble-ellipses-outline"
-            size={22}
+            size={29}
             color="#FF7A00"
           />
           <View style={styles.plusBadge}>
             <Text style={styles.plusBadgeText}>+</Text>
           </View>
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.tabRow}>
-        <TouchableOpacity
-          style={[styles.tabBtn, tab === "hot" && styles.tabBtnActive]}
-          onPress={() => setTab("hot")}
-        >
-          <Text style={[styles.tabText, tab === "hot" && styles.tabTextActive]}>
-            Hot
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabBtn, tab === "recent" && styles.tabBtnActive]}
-          onPress={() => setTab("recent")}
-        >
-          <Text
-            style={[styles.tabText, tab === "recent" && styles.tabTextActive]}
-          >
-            Recent
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchSection}>
-        <Ionicons
-          name="search-outline"
-          size={20}
-          color="#999"
-          style={styles.searchIcon}
-        />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search"
-          placeholderTextColor="#999"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
       </View>
 
       <FlatList
@@ -363,8 +415,27 @@ export default function ForumIndex() {
         contentContainerStyle={{ paddingBottom: 20 }}
         ListEmptyComponent={
           <Text style={styles.emptyText}>
-            No recipes posted yet. Be the first!
+            {tab === "saved"
+              ? "No saved posts yet."
+              : "No recipes posted yet. Be the first!"}
           </Text>
+        }
+        ListHeaderComponent={
+          <View style={styles.searchSection}>
+            <Ionicons
+              name="search-outline"
+              size={20}
+              color="#999"
+              style={styles.searchIcon}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search"
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
         }
         renderItem={({ item }) => {
           const recipe = item.recipes!;
@@ -422,6 +493,16 @@ export default function ForumIndex() {
                       name={item.is_liked ? "heart" : "heart-outline"}
                       size={22}
                       color={item.is_liked ? "#FF3B30" : "#333"}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleToggleSave(item.recipe_forum_id)}
+                    style={styles.reportBtn}
+                  >
+                    <Ionicons
+                      name={item.is_saved ? "bookmark" : "bookmark-outline"}
+                      size={20}
+                      color={item.is_saved ? "#FF7A00" : "#666"}
                     />
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -501,6 +582,22 @@ export default function ForumIndex() {
                           }
                           size={20}
                           color={selectedPost.is_liked ? "#FF3B30" : "#333"}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() =>
+                          handleToggleSave(selectedPost.recipe_forum_id)
+                        }
+                        style={styles.reportBtn}
+                      >
+                        <Ionicons
+                          name={
+                            selectedPost.is_saved
+                              ? "bookmark"
+                              : "bookmark-outline"
+                          }
+                          size={20}
+                          color={selectedPost.is_saved ? "#FF7A00" : "#666"}
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -587,23 +684,24 @@ export default function ForumIndex() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
+  container: { flex: 1, backgroundColor: "#FFF" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   headerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingHorizontal: 20,
-    paddingTop: 50,
+    justifyContent: "space-between",
+    paddingRight: 20,
+    paddingTop: 20,
     paddingBottom: 12,
     backgroundColor: "#FFF",
   },
   tabRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
+    justifyContent: "center",
+    alignItems: "center",
     gap: 10,
     backgroundColor: "#FFF",
-    paddingBottom: 10,
   },
   tabBtn: {
     paddingVertical: 6,

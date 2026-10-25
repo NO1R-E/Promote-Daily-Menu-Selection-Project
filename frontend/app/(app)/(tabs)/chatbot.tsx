@@ -1,6 +1,4 @@
-import { useAuth } from "@/src/contexts/AuthContext";
-import { useHealth } from "@/src/contexts/HealthContext";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,22 +10,69 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { sendChatMessage } from "../../../src/api/sendChatMessage";
 import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
 import { HealthBanner } from "@/components/HealthBanner";
+import { useAuth } from "@/src/contexts/AuthContext";
+import { useHealth } from "@/src/contexts/HealthContext";
+import { supabase } from "@/src/config/supabase";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function ChatbotScreen() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const { isServerHealthy } = useHealth();
-
-  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
   const { user } = useAuth();
 
-  const handleSend = async () => {
-    if (!inputText.trim() || loading || !user?.id) return;
+  const params = useLocalSearchParams<{ currentRoom?: string }>();
+  const [currentRoom, setCurrentRoom] = useState<string | null>(
+    params.currentRoom ?? null,
+  );
 
+  useEffect(() => {
+    if (params.currentRoom !== undefined) {
+      setCurrentRoom(params.currentRoom);
+    }
+  }, [params.currentRoom]);
+
+  useEffect(() => {
+    const fetchRoomMessages = async () => {
+      if (!currentRoom) {
+        setMessages([]);
+        return;
+      }
+
+      setLoading(true);
+      const numericRoomId = parseInt(currentRoom, 10);
+
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("massage_id, sender, content, metadata, created_at")
+        .eq("room_id", numericRoomId)
+        .order("created_at", { ascending: true });
+
+      if (!error && data) {
+        setMessages(
+          data.map((m: any) => ({
+            id: String(m.massage_id),
+            sender: m.sender,
+            text: m.content,
+            recommendations: m.metadata ? JSON.parse(m.metadata) : [],
+          })),
+        );
+      } else if (error) {
+        console.error("Error pulling room history:", error);
+      }
+      setLoading(false);
+    };
+
+    fetchRoomMessages();
+  }, [currentRoom]);
+
+  const handleSend = async () => {
+    if (!inputText.trim() || loading || !user?.id || !isServerHealthy) return;
     const userText = inputText.trim();
     setInputText("");
 
@@ -48,7 +93,7 @@ export default function ChatbotScreen() {
       });
 
       if (!currentRoom && data.room_id) {
-        setCurrentRoom(data.room_id);
+        setCurrentRoom(String(data.room_id));
       }
 
       const botMsg: MessageItem = {
@@ -69,6 +114,57 @@ export default function ChatbotScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderSuggestedActions = () => {
+    // หากเริ่มมีข้อความในแชตแล้ว (messages.length > 0) ให้ซ่อนคำแนะนำทั้งหมดทันที
+    if (messages.length > 0) return null;
+
+    return (
+      <View style={styles.suggestionsContainer}>
+        {/* 1. Daily Action */}
+        <TouchableOpacity
+          style={styles.suggestionCard}
+          onPress={() => setInputText("Give me a Plan for today")}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#FF7A00" />
+          <View style={styles.suggestionTextWrapper}>
+            <Text style={styles.suggestionTitle}>Give me a Plan for today</Text>
+            <Text style={styles.suggestionSub}>
+              Generate daily meal & fitness goals
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* 2. New Chat Quick Prompts */}
+        <TouchableOpacity
+          style={styles.suggestionCard}
+          onPress={() => setInputText("Recommend a meal")}
+        >
+          <Ionicons name="restaurant-outline" size={20} color="#007AFF" />
+          <View style={styles.suggestionTextWrapper}>
+            <Text style={styles.suggestionTitle}>Recommend a meal</Text>
+            <Text style={styles.suggestionSub}>
+              Get tailored food suggestions
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* 3. Help Command */}
+        <TouchableOpacity
+          style={styles.suggestionCard}
+          onPress={() => setInputText("!help")}
+        >
+          <Ionicons name="help-circle-outline" size={20} color="#34C759" />
+          <View style={styles.suggestionTextWrapper}>
+            <Text style={styles.suggestionTitle}>!help</Text>
+            <Text style={styles.suggestionSub}>
+              See list of available commands & capabilities
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   const renderRecommendationCard = (rec: MealRecommendation) => (
@@ -115,6 +211,7 @@ export default function ChatbotScreen() {
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={renderSuggestedActions}
         renderItem={({ item }) => (
           <View
             style={[
@@ -275,4 +372,36 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sendText: { color: "#007AFF", fontWeight: "600" },
+  suggestionsContainer: {
+    marginBottom: 16,
+    gap: 10,
+  },
+  suggestionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E5EA",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  suggestionTextWrapper: {
+    flex: 1,
+  },
+  suggestionTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1C1C1E",
+  },
+  suggestionSub: {
+    fontSize: 12,
+    color: "#8E8E93",
+    marginTop: 2,
+  },
 });

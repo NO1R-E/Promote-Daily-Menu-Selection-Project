@@ -7,7 +7,7 @@ from services.supabase_service import fetch_recipes_cache
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Fetch_recipes_cache called!")
-    await fetch_recipes_cache()
+    # await fetch_recipes_cache()
     yield
 
 app = FastAPI(

@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 function NavigationGate() {
-  const { user, loading, onboardingStatus, isAdmin, homeRoute } = useAuth();
+  const { user, loading, onboardingStatus, isAdmin, homeRoute, terms_accepted } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -14,6 +14,8 @@ function NavigationGate() {
       router.replace("/(auth)/login");
     } else if (isAdmin) {
       router.replace(homeRoute);
+    } else if (user && !terms_accepted) {
+      router.replace("/(onboarding)/terms-consent");
     } else if (user && onboardingStatus === "not_started") {
       //router.replace("/(app)/(tabs)/chatbot");
       router.replace("/(onboarding)");

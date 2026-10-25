@@ -12,6 +12,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     user: null,
     profile: null,
     personalData: null,
+    terms_accepted: false,
     onboardingStatus: "not_started",
     loading: true,
   });
@@ -22,6 +23,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       user: null,
       profile: null,
       personalData: null,
+      terms_accepted: false,
       onboardingStatus: "not_started",
       loading: false,
     });
@@ -59,6 +61,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user: activeSession?.user ?? null,
         profile: prof,
         personalData: metrics,
+        terms_accepted: prof?.terms_accepted || false,
         onboardingStatus: prof?.onboarding_status || "not_started",
         loading: false,
       });
@@ -107,7 +110,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   //console.log(state.profile);
   const isAdmin = state.profile?.role === "admin";
 
-  const homeRoute = isAdmin ? "/(admin)" : "/(app)/(tabs)/chatbot";
+  const homeRoute = isAdmin ? "/(admin)" : "/(app)/(tabs)/forum";
 
   return (
     <AuthContext.Provider

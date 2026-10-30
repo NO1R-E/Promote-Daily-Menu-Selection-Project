@@ -68,7 +68,9 @@ export default function AllergiesForm({
   };
 
   const allergyOptions = options.filter((t) => t.group_id === ALLERGEN_GROUP_ID);
-  const dietaryOptions = options.filter((t) => t.group_id === DIET_GROUP_ID);
+  const dietaryOptions = options
+    .filter((t) => t.group_id === DIET_GROUP_ID)
+    .filter((t) => !t.tag_name.startsWith("Non-")); // ตัด Non- ออก
 
   const renderChip = (tag: Tag) => {
     const isSelected = selected.includes(tag.tag_id);

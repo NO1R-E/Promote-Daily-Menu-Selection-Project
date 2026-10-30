@@ -14,6 +14,9 @@ import { OnboardingFormData, UserPref } from "@/src/types/OnboardingType";
 
 type Tag = { tag_id: number; tag_name: string };
 
+// group_id ในตาราง tag_groups ของแท็กที่ใช้ถามความชอบ (เดิมใช้ tag_category = "LIKING")
+const LIKING_GROUP_ID = 3;
+
 type Props = {
   initialData: Partial<OnboardingFormData>;
   buttonLabel: string;
@@ -40,7 +43,7 @@ export default function PreferenceForm({
     supabase
       .from("tags")
       .select("tag_id, tag_name")
-      .eq("tag_category", "LIKING")
+      .eq("group_id", LIKING_GROUP_ID)
       .then(({ data, error }) => {
         if (error) {
           console.error("Error loading filter tags:", error);

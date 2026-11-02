@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
+import AdminIngredientForm from "@/components/forms/AdminIngredientForm";
 
 type FlaggedForum = {
   recipe_forum_id: number;
@@ -60,6 +63,9 @@ export default function AdminReportsScreen() {
 
   // Logout Modal State
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
+
+  // Add Ingredient Modal State (ฟอร์มเพิ่มวัตถุดิบหลัก)
+  const [isIngredientModalVisible, setIsIngredientModalVisible] = useState(false);
 
   const fetchFlaggedReports = async () => {
     setLoading(true);
@@ -163,9 +169,17 @@ export default function AdminReportsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Flagged Reports Queue</Text>
-        <TouchableOpacity onPress={() => setIsLogoutModalVisible(true)}>
-          <Ionicons name="log-out-outline" size={24} color="#FF3B30" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerIconBtn}
+            onPress={() => setIsIngredientModalVisible(true)}
+          >
+            <Ionicons name="add-circle-outline" size={26} color="#F28E2B" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsLogoutModalVisible(true)}>
+            <Ionicons name="log-out-outline" size={24} color="#FF3B30" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Text style={styles.subHeader}>
@@ -311,6 +325,34 @@ export default function AdminReportsScreen() {
         </View>
       </Modal>
 
+      {/* Add Ingredient Modal */}
+      <Modal
+        visible={isIngredientModalVisible}
+        animationType="slide"
+        onRequestClose={() => setIsIngredientModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalContainer}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalHeaderTitle}>Add Ingredient</Text>
+            <TouchableOpacity onPress={() => setIsIngredientModalVisible(false)}>
+              <Ionicons name="close" size={26} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.ingredientModalBody}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* บันทึกสำเร็จแล้วฟอร์มจะล้างค่าเอง แอดมินเพิ่มต่อได้เลย กด X เมื่อเสร็จ */}
+            <AdminIngredientForm title="" />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Logout Modal */}
       <Modal
         visible={isLogoutModalVisible}
@@ -357,6 +399,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   title: { fontSize: 22, fontWeight: "bold", color: "#333" },
+  headerActions: { flexDirection: "row", alignItems: "center" },
+  headerIconBtn: { marginRight: 16 },
+  ingredientModalBody: { padding: 20, paddingBottom: 60 },
   subHeader: {
     fontSize: 13,
     color: "#666",

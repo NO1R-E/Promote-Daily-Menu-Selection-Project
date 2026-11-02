@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +7,7 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { useFocusEffect } from "expo-router";
 import { Calendar } from "react-native-calendars";
 import Svg, { Circle } from "react-native-svg";
-import { calculateTargets, parseTargetProfile } from "@/src/utils/nutritionTargets";
+import { DEFAULT_TARGETS, type Targets } from "@/src/utils/nutritionTargets";
 
 // เริ่มต้นที่ 3 มื้อ กดเพิ่มได้อีกสูงสุด 3 มื้อ (รวมแล้วไม่เกิน 6)
 const DEFAULT_MEAL_SLOTS = 3;
@@ -21,52 +21,36 @@ const ORANGE_LIGHT = "#FFF5EA"; // พื้นแถบวันที่ / เ
 const ORANGE_TRACK = "#F9D5AE"; // รางของวงแหวน
 const ORANGE_BORDER = "#F6C48F"; // เส้นประปุ่ม Add meal
 
-// คำนวณสารอาหารจากวัตถุดิบ
-const calculateRecipeNutrients = (recipeIngredients: any[], servingsCount: number = 1) => {
-  const summary = { calories: 0, fat: 0, protein: 0, carbs: 0, fiber: 0, sugar: 0, sodium: 0 };
-
-  // ป้องกันกรณี serving เป็น 0 หรือ null
-  const safeServings = servingsCount > 0 ? servingsCount : 1;
-
-  // วนลูปผ่านวัตถุดิบแต่ละตัวของสูตรอาหาร
-  recipeIngredients?.forEach((ri) => {
-    const weightG = ri.weight_g || 0;
-    const ingredientNutrients = ri.ingredients?.ingredient_nutrients || [];
-
-    // วนลูปผ่านสารอาหารแต่ละตัวของวัตถุดิบ
-    ingredientNutrients.forEach((item: any) => {
-      const name = item.nutrients?.nutrient_name?.toLowerCase() || "";
-      const baseAmount = item.amount || 0;
-
-      const calculatedAmount = (weightG / 100) * baseAmount;
-
-      if (name.includes("calorie") || name.includes("energy")) {
-        summary.calories += calculatedAmount;
-      } else if (name.includes("fat")) {
-        summary.fat += calculatedAmount;
-      } else if (name.includes("protein")) {
-        summary.protein += calculatedAmount;
-      } else if (name.includes("carb")) {
-        summary.carbs += calculatedAmount;
-      } else if (name.includes("fiber")) {
-        summary.fiber += calculatedAmount;
-      } else if (name.includes("sugar")) {
-        summary.sugar += calculatedAmount;
-      } else if (name.includes("sodium")) {
-        summary.sodium += calculatedAmount;
-      }
-    });
-  });
+// ดึงสารอาหารต่อ 1 serving จากตาราง recipe_features (คำนวณไว้ในฐานข้อมูลแล้ว ไม่ต้องคำนวณเองอีก)
+const mapRecipeFeatures = (features: any) => {
+  // ถ้า recipe_id ใน recipe_features ไม่ได้เป็น PK/unique Supabase จะคืนเป็น array
+  const f = Array.isArray(features) ? features[0] : features;
+  // คอลัมน์ numeric จาก Postgres อาจมาเป็น string จึงแปลงเป็นตัวเลขก่อน
+  const num = (v: any) => Number(v) || 0;
 
   return {
-    calories: summary.calories / safeServings,
-    fat: summary.fat / safeServings,
-    protein: summary.protein / safeServings,
-    carbs: summary.carbs / safeServings,
-    fiber: summary.fiber / safeServings,
-    sugar: summary.sugar / safeServings,
-    sodium: summary.sodium / safeServings,
+    calories: num(f?.calories),
+    fat: num(f?.total_fat),
+    protein: num(f?.protein),
+    carbs: num(f?.carb), // ชื่อคอลัมน์จริงใน DB คือ carb (ไม่มี s)
+    fiber: num(f?.fiber),
+    sugar: num(f?.sugar),
+    sodium: num(f?.sodium),
   };
+};
+
+// recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
+// (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
+const getFirstImage = (img: any): string | null => {
+  let value = img;
+  // กรณีเก็บเป็นสตริง JSON เช่น '["https://..."]'
+  if (typeof value === "string" && value.trim().startsWith("[")) {
+    try { value = JSON.parse(value); } catch { /* ใช้ค่าเดิม */ }
+  }
+  if (Array.isArray(value)) {
+    return value.find((u: any) => typeof u === "string" && u.length > 0) || null;
+  }
+  return typeof value === "string" && value.length > 0 ? value : null;
 };
 
 export default function TrackingRecordScreen() {
@@ -76,11 +60,8 @@ export default function TrackingRecordScreen() {
   const [items, setItems] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
-  // เป้าหมายสารอาหารรายวัน คำนวณจาก personalData ใน AuthContext (ถ้าข้อมูลไม่ครบจะ fallback เป็นค่าเดิม)
-  const targets = useMemo(
-    () => calculateTargets(parseTargetProfile(personalData)),
-    [personalData]
-  );
+  // เป้าหมายสารอาหารรายวัน ดึงจาก view user_daily_targets (ถ้าไม่มีข้อมูล/ดึงไม่สำเร็จ จะใช้ค่าเดิม)
+  const [targets, setTargets] = useState<Targets>(DEFAULT_TARGETS);
 
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
@@ -104,6 +85,37 @@ export default function TrackingRecordScreen() {
     setSelectedDate(formattedDate);
   };
 
+  // ดึงเป้าหมายรายวันจาก view user_daily_targets
+  const fetchTargets = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("user_daily_targets")
+        .select("kcal, protein_g, fat_g, carbs_g, fiber_g, sugar_g, sodium_mg")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setTargets(
+        data
+          ? {
+              calories: Number(data.kcal),
+              protein: Number(data.protein_g),
+              fat: Number(data.fat_g),
+              carb: Number(data.carbs_g),
+              fiber: Number(data.fiber_g),
+              sugar: Number(data.sugar_g),
+              sodium: Number(data.sodium_mg),
+            }
+          : DEFAULT_TARGETS
+      );
+    } catch (error) {
+      console.error("Error fetching daily targets:", error);
+      setTargets(DEFAULT_TARGETS);
+    }
+  };
+
   // ดึงข้อมูลจาก record_item 
   const fetchDailyRecords = async () => {
     if (!user) return;
@@ -122,20 +134,14 @@ export default function TrackingRecordScreen() {
           recipe_name,
           img,
           serving,
-          recipe_ingredients (
-            recipe_ingredient_id,
-            weight_g,
-            ingredients (
-              ingredient_id,
-              ingredient_nutrients (
-                amount,
-                nutrients (
-                  nutrient_id,
-                  nutrient_name,
-                  nutrient_unit
-                )
-              )
-            )
+          recipe_features (
+            calories,
+            protein,
+            sugar,
+            total_fat,
+            carb,
+            fiber,
+            sodium
           )
         )
       `)
@@ -147,10 +153,7 @@ export default function TrackingRecordScreen() {
       if (data && Array.isArray(data)) {
         const formattedItems = data.map((item: any) => ({
           ...item,
-          calculatedNutrients: calculateRecipeNutrients(
-            item.recipe?.recipe_ingredients || [],
-            item.recipe?.serving || 1
-          )
+          calculatedNutrients: mapRecipeFeatures(item.recipe?.recipe_features)
         }));
         setItems(formattedItems);
       } else {
@@ -167,6 +170,13 @@ export default function TrackingRecordScreen() {
     useCallback(() => {
       fetchDailyRecords();
     }, [user, selectedDate])
+  );
+
+  // โหลดเป้าหมายใหม่ทุกครั้งที่เข้าหน้านี้ หรือเมื่อข้อมูลส่วนตัวเปลี่ยน
+  useFocusEffect(
+    useCallback(() => {
+      fetchTargets();
+    }, [user, personalData])
   );
 
   // ถ้าเคยบันทึกมื้อที่ 4, 5, 6 ไว้ก่อนหน้านี้ ให้ขยายช่องให้ครบ จะได้ไม่หายไปจากหน้าจอ
@@ -350,7 +360,7 @@ export default function TrackingRecordScreen() {
                   <Image
                     source={{
                       uri:
-                        mealItem?.recipe?.img ||
+                        getFirstImage(mealItem?.recipe?.img) ||
                         "https://via.placeholder.com/40",
                     }}
                     style={styles.mealThumb}
@@ -457,7 +467,7 @@ export default function TrackingRecordScreen() {
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#F2994A" }]} />
             <Text style={styles.macroLabel}>Carbs</Text>
-            <Text style={styles.macroValue}>{totalCarbs}/{targets.carbs}g</Text>
+            <Text style={styles.macroValue}>{totalCarbs}/{targets.carb}g</Text>
           </View>
 
           <View style={styles.macroRow}>

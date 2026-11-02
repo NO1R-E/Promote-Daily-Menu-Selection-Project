@@ -5,6 +5,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
+// recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
+// (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
+const getFirstImage = (img: any): string | null => {
+  let value = img;
+  // กรณีเก็บเป็นสตริง JSON เช่น '["https://..."]'
+  if (typeof value === "string" && value.trim().startsWith("[")) {
+    try { value = JSON.parse(value); } catch { /* ใช้ค่าเดิม */ }
+  }
+  if (Array.isArray(value)) {
+    return value.find((u: any) => typeof u === "string" && u.length > 0) || null;
+  }
+  return typeof value === "string" && value.length > 0 ? value : null;
+};
+
 const PAGE_SIZE = 20;
 
 export default function FoodSearchScreen() {
@@ -34,8 +48,8 @@ export default function FoodSearchScreen() {
       const to = from + PAGE_SIZE - 1;
 
       let query = supabase
-        .from("v_recipes_with_calories")
-        .select("recipe_id, recipe_name, img, total_calories")
+        .from("recipes")
+        .select("recipe_id, recipe_name, img, recipe_features(calories)")
         .range(from, to)
         .order("recipe_id", { ascending: true });
 
@@ -49,6 +63,17 @@ export default function FoodSearchScreen() {
       if (error) throw error;
 
       if (data) {
+        // ดึงแคลอรี่จาก recipe_features มาใส่ total_calories (ถ้าสูตรไหนยังไม่มีข้อมูลจะเป็น 0)
+        const rows = data.map((r: any) => {
+          const f = Array.isArray(r.recipe_features) ? r.recipe_features[0] : r.recipe_features;
+          return {
+            recipe_id: r.recipe_id,
+            recipe_name: r.recipe_name,
+            img: getFirstImage(r.img),
+            total_calories: Math.round(Number(f?.calories) || 0),
+          };
+        });
+
         // ได้น้อยกว่า PAGE_SIZE แปลว่าหมดแล้ว ไม่ต้องโหลดต่อ
         if (data.length < PAGE_SIZE) {
           setHasMore(false);
@@ -57,9 +82,9 @@ export default function FoodSearchScreen() {
         }
 
         if (isNewSearch) {
-          setRecipes(data);
+          setRecipes(rows);
         } else {
-          setRecipes((prev) => [...prev, ...data]);
+          setRecipes((prev) => [...prev, ...rows]);
         }
       }
     } catch (error: any) {

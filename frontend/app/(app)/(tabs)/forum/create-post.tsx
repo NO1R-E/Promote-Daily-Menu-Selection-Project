@@ -2,9 +2,14 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { supabase } from "@/src/config/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { decode } from "base64-arraybuffer";
+import IngredientPickerSheet, {
+  PickedIngredient,
+  PickableIngredient,
+  makeIngredientKey,
+} from "@/components/forms/ingredientPickerSheet";
 import {
   Alert,
   ScrollView,
@@ -18,111 +23,6 @@ import {
 } from "react-native";
 
 const MAX_IMAGES = 4;
-
-type PickedIngredient = {
-  ingredient_id: number;
-  name: string;
-  weight_g: string;
-};
-
-function IngredientPicker({
-  value,
-  onChange,
-}: {
-  value: PickedIngredient[];
-  onChange: (v: PickedIngredient[]) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<
-    { ingredient_id: number; norm_en: string }[]
-  >([]);
-  const [searchError, setSearchError] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      let request = supabase
-        .from("ingredients")
-        .select("ingredient_id, norm_en")
-        .limit(8);
-
-      if (query.trim()) {
-        request = request.ilike("norm_en", `%${query.trim()}%`);
-      }
-
-      const { data, error } = await request;
-      setSearchError(!!error);
-      setResults(data ?? []);
-    }, 300);
-
-    return () => clearTimeout(t);
-  }, [query]);
-
-  const add = (r: { ingredient_id: number; norm_en: string }) => {
-    if (!value.some((v) => v.ingredient_id === r.ingredient_id)) {
-      onChange([
-        ...value,
-        {
-          ingredient_id: r.ingredient_id,
-          name: r.norm_en,
-          weight_g: "",
-        },
-      ]);
-    }
-    setQuery("");
-  };
-
-  return (
-    <View>
-      {value.map((ing, i) => (
-        <View key={ing.ingredient_id} style={styles.rowItem}>
-          <Text style={{ flex: 1 }}>{ing.name}</Text>
-          <TextInput
-            style={[styles.input, { width: 90, padding: 8 }]}
-            value={ing.weight_g}
-            keyboardType="decimal-pad"
-            placeholder="grams"
-            onChangeText={(t) =>
-              onChange(
-                value.map((v, idx) => (idx === i ? { ...v, weight_g: t } : v)),
-              )
-            }
-          />
-          <TouchableOpacity
-            onPress={() => onChange(value.filter((_, idx) => idx !== i))}
-            style={{ marginLeft: 10 }}
-          >
-            <Ionicons name="close-circle" size={22} color="#FF3B30" />
-          </TouchableOpacity>
-        </View>
-      ))}
-
-      <TextInput
-        style={styles.input}
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search ingredient to add"
-      />
-      {searchError && (
-        <Text style={{ color: "#B00020", marginTop: 6 }}>
-          Couldn't search ingredients. Try again.
-        </Text>
-      )}
-      <View style={{ marginTop: 4 }}>
-        {results.map((r) => (
-          <TouchableOpacity
-            key={r.ingredient_id}
-            style={{ paddingVertical: 10, paddingHorizontal: 4 }}
-            onPress={() => add(r)}
-          >
-            <Text style={{ color: "#007AFF", fontSize: 16 }}>
-              + {r.norm_en}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
-}
 
 export default function CreatePostScreen() {
   const router = useRouter();
@@ -138,6 +38,17 @@ export default function CreatePostScreen() {
   const [ingredients, setIngredients] = useState<PickedIngredient[]>([]);
   const [images, setImages] = useState<{ uri: string; base64: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
+
+  // กดเลือก/ยกเลิกวัตถุดิบจากหน้าต่างเลือก (แยกด้วย key กัน id ของวัตถุดิบระบบกับของตัวเองชนกัน)
+  const toggleIngredient = (item: PickableIngredient) => {
+    const key = makeIngredientKey(item.source, item.id);
+    setIngredients((prev) =>
+      prev.some((p) => p.key === key)
+        ? prev.filter((p) => p.key !== key)
+        : [...prev, { key, source: item.source, id: item.id, name: item.name, weight_g: "" }]
+    );
+  };
 
   const pickImages = async () => {
     const remaining = MAX_IMAGES - images.length;
@@ -212,8 +123,9 @@ export default function CreatePostScreen() {
 
       const parsedHashtags = hashtags.split(/[ ,]+/).filter(Boolean);
       const parsedSteps = stepsRaw.split("\n").filter(Boolean);
+      // วัตถุดิบทั้งของระบบและของผู้ใช้อยู่ในตาราง ingredients เดียวกัน ส่งรวมใน p_ingredients ได้เลย
       const parsedIngredients = ingredients.map((ing) => ({
-        ingredient_id: ing.ingredient_id,
+        ingredient_id: ing.id,
         weight_g: parseFloat(ing.weight_g) || 0,
       }));
 
@@ -241,6 +153,7 @@ export default function CreatePostScreen() {
   };
 
   return (
+    <>
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
@@ -329,7 +242,41 @@ export default function CreatePostScreen() {
       />
 
       <Text style={styles.label}>Ingredients</Text>
-      <IngredientPicker value={ingredients} onChange={setIngredients} />
+      {ingredients.map((ing, i) => (
+        <View key={ing.key} style={styles.rowItem}>
+          <View style={{ flex: 1 }}>
+            <Text>{ing.name}</Text>
+            {ing.source === "user" && <Text style={styles.myBadge}>My ingredient</Text>}
+          </View>
+          <TextInput
+            style={[styles.input, { width: 90, padding: 8 }]}
+            value={ing.weight_g}
+            keyboardType="decimal-pad"
+            placeholder="grams"
+            editable={!loading}
+            onChangeText={(t) =>
+              setIngredients((prev) => prev.map((v, idx) => (idx === i ? { ...v, weight_g: t } : v)))
+            }
+          />
+          <TouchableOpacity
+            onPress={() => setIngredients((prev) => prev.filter((_, idx) => idx !== i))}
+            style={{ marginLeft: 10 }}
+            disabled={loading}
+          >
+            <Ionicons name="close-circle" size={22} color="#FF3B30" />
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <TouchableOpacity
+        style={styles.addIngredientBtn}
+        activeOpacity={0.8}
+        onPress={() => setIsPickerVisible(true)}
+        disabled={loading}
+      >
+        <Ionicons name="add-circle-outline" size={20} color="#F28E2B" />
+        <Text style={styles.addIngredientText}>Add ingredient</Text>
+      </TouchableOpacity>
 
       <Text style={styles.label}>
         Steps / Cooking Method (One step per line)
@@ -367,6 +314,14 @@ export default function CreatePostScreen() {
         )}
       </TouchableOpacity>
     </ScrollView>
+
+    <IngredientPickerSheet
+      visible={isPickerVisible}
+      onClose={() => setIsPickerVisible(false)}
+      picked={ingredients}
+      onToggle={toggleIngredient}
+    />
+    </>
   );
 }
 
@@ -424,6 +379,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 10,
   },
+  myBadge: { fontSize: 11, fontWeight: "600", color: "#C96A0A", marginTop: 2 },
+  addIngredientBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: "#F6C48F",
+    backgroundColor: "#FFF5EA",
+    marginTop: 4,
+  },
+  addIngredientText: { marginLeft: 6, fontSize: 15, fontWeight: "600", color: "#C96A0A" },
   imagePlaceholder: {
     width: 70,
     height: 70,

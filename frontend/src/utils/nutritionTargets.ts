@@ -18,7 +18,7 @@ export interface Targets {
   calories: number; // kcal
   fat: number; // g
   protein: number; // g
-  carbs: number; // g
+  carb: number; // g
   fiber: number; // g
   sugar: number; // g (ขีดจำกัดสูงสุด)
   sodium: number; // mg (ขีดจำกัดสูงสุด)
@@ -29,7 +29,7 @@ export const DEFAULT_TARGETS: Targets = {
   calories: 2000,
   fat: 65,
   protein: 60,
-  carbs: 300,
+  carb: 300,
   fiber: 25,
   sugar: 50,
   sodium: 2000,
@@ -100,7 +100,7 @@ const buildTargets = (kcal: number, proteinG: number, fatG: number): Targets => 
     calories: Math.round(kcal),
     protein: Math.round(proteinG),
     fat: Math.round(fatG),
-    carbs: Math.round(carbsG),
+    carb: Math.round(carbsG),
     fiber: CONFIG.common.fiberG,
     sugar: Math.round((CONFIG.common.sugarPctOfKcal * kcal) / KCAL_PER_G.carbs),
     sodium: CONFIG.common.sodiumMg,
@@ -131,7 +131,7 @@ const calcBuildMuscle = (p: TargetProfile, tdee: number): Targets => {
   let result = buildTargets(tdee * (1 + surplus), proteinG, fatPerKg * p.weightKg);
 
   // ถ้าคาร์บต่ำกว่าขั้นต่ำ: ลดไขมันทีละ 0.1 g/กก. (ไม่ต่ำกว่า fatPerKgMin) ก่อน แล้วค่อยเพิ่ม surplus (ไม่เกิน surplusMaxPct)
-  while (result.carbs < minCarbsG) {
+  while (result.carb < minCarbsG) {
     if (fatPerKg - 0.1 >= c.fatPerKgMin - 1e-9) {
       fatPerKg = round1(fatPerKg - 0.1);
     } else if (surplus + 0.01 <= c.surplusMaxPct + 1e-9) {

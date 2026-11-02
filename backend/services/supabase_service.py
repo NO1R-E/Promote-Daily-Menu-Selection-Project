@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional, Dict, Set
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
@@ -201,3 +202,14 @@ async def fetch_recipes_cache():
 
     except Exception as e:
         print(f"Failed to load recipe cache from Supabase: {e}")
+        
+async def log_impressions(user_id: str, recipe_ids: list[int], source: str = "chat") -> None:
+    if not recipe_ids:
+        return
+    try:
+        await asyncio.to_thread(lambda: supabase.rpc(
+            "log_impressions",
+            {"p_user_id": user_id, "p_recipe_ids": recipe_ids, "p_source": source},
+        ).execute())
+    except Exception as e:           # การบันทึกพลาดต้องไม่ทำให้แชตพัง
+        print(f"log_impressions failed: {e}")

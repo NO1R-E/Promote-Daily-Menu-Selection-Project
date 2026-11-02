@@ -1,166 +1,92 @@
-from typing import List, Dict
-from schemas import UserMessageRequest, ClassificationResult, MealRecommendation, CachedRecipes
-from services.supabase_service import MEAL_CACHE
+import asyncio
+import random
+from typing import Iterable, List, Optional
 
-# Base Reference Daily Values (DV)
-DV = {
-    "Calories": 2000.0,
-    "Protein": 50.0,
-    "Sugar": 50.0,
-    "TotalFat": 60.0,
-    "SaturatedFat": 20.0,
-    "Carbohydrate": 300.0,
-    "Fiber": 25.0,
-    "Sodium": 2400.0,
-    "Cholesterol": 300.0,
-    "VitA": 5000.0,
-    "VitC": 60.0,
-    "Calcium": 1000.0,
-    "Iron": 18.0
-}
+from schemas import MealRecommendation
+from services.preferences import clean_preferences, preferences_to_weights
+from services.supabase_service import supabase
 
-# Base Health Score Weights
-DEFAULT_WEIGHTS = {
-    "Calories": 1.00,
-    "Protein": 1.00,
-    "Sugar": 1.10,
-    "TotalFat": 1.10,
-    "SaturatedFat": 1.70,
-    "Carbohydrate": 1.00,
-    "Fiber": 1.50,
-    "Sodium": 1.00,
-    "Cholesterol": 1.20,
-    "VitA": 1.00,
-    "VitC": 1.00,
-    "Calcium": 1.00,
-    "Iron": 1.00,
-    "TransFat": 0.91,
-    "ComplexCarb": 0.10
-}
-
-# Rule-based are here
-def get_dynamic_weights(preferences: ClassificationResult) -> Dict[str, float]:
-    weights = DEFAULT_WEIGHTS.copy()
-
-    if not preferences:
-        return weights
-
-    # temp
-    if getattr(preferences, "low_salt", False) or "low_sodium" in getattr(preferences, "tags", []):
-        weights["Sodium"] = 2.50
-
-    if getattr(preferences, "low_sugar", False) or "diabetic" in getattr(preferences, "tags", []):
-        weights["Sugar"] = 2.50
-
-    if getattr(preferences, "high_protein", False):
-        weights["Protein"] = 2.00
-
-    return weights
+REPEAT_WINDOW_DAYS = 3
+MAX_FOCUS_TRIES = 3
 
 
-def calculate_elixir_score(nutrients: Dict[str, float], weights: Dict[str, float], mult: float = 1.0) -> float:
-    dish = {
-        "Calories": nutrients.get("Calories", 0.0),
-        "Protein": nutrients.get("Protein", 0.0),
-        "Sugar": nutrients.get("Sugar", 0.0),
-        "TotalFat": nutrients.get("TotalFat", 0.0),
-        "SaturatedFat": nutrients.get("SaturatedFat", 0.0),
-        "Carbohydrate": nutrients.get("Carbohydrate", 0.0),
-        "Fiber": nutrients.get("Fiber", 0.0),
-        "Sodium": nutrients.get("Sodium", 0.0),
-        "Cholesterol": nutrients.get("Cholesterol", 0.0),
-        "VitA": nutrients.get("VitA", 0.0),
-        "VitC": nutrients.get("VitC", 0.0),
-        "Calcium": nutrients.get("Calcium", 0.0),
-        "Iron": nutrients.get("Iron", 0.0),
-        "TransFat": nutrients.get("TransFat", 0.0)
-    }
-
-    carb = max(dish["Carbohydrate"], 0.001)
-    total_fat = max(dish["TotalFat"], 0.001)
-
-    rec_base = weights["Protein"] * (dish["Protein"] / DV["Protein"])
-    fiber_term = weights["Fiber"] * (dish["Fiber"] / carb)
-    complex_carb_numerator = carb - dish["Fiber"] - dish["Sugar"]
-    complex_carb_term = weights["ComplexCarb"] * (max(0.0, complex_carb_numerator) / carb)
-    rec_base = rec_base + fiber_term + complex_carb_term
-
-    rec_add = (
-        weights["VitA"] * (dish["VitA"] / DV["VitA"]) +
-        weights["VitC"] * (dish["VitC"] / DV["VitC"]) +
-        weights["Calcium"] * (dish["Calcium"] / DV["Calcium"]) +
-        weights["Iron"] * (dish["Iron"] / DV["Iron"])
-    )
-
-    rest_base = (
-        weights["Calories"] * (dish["Calories"] / DV["Calories"]) +
-        weights["Cholesterol"] * (dish["Cholesterol"] / DV["Cholesterol"]) +
-        weights["Sodium"] * (dish["Sodium"] / DV["Sodium"]) +
-        weights["SaturatedFat"] * (dish["SaturatedFat"] / DV["SaturatedFat"]) +
-        weights["TotalFat"] * (dish["TotalFat"] / DV["TotalFat"]) +
-        weights["Sugar"] * (dish["Sugar"] / DV["Sugar"])
-    )
-
-    sugar_carb_ratio = weights["Carbohydrate"] * (dish["Sugar"] / carb)
-    sat_fat_ratio = weights["SaturatedFat"] * (dish["SaturatedFat"] / total_fat)
-    trans_fat_term = weights["TransFat"] * dish["TransFat"]
-
-    rest_base = rest_base + sugar_carb_ratio + sat_fat_ratio + trans_fat_term
-    rest_base = max(rest_base, 0.001)
-
-    base_elixir = (rec_base + mult * rec_add) / ((1 + mult) * rest_base)
-
-    return round(base_elixir, 4)
+async def _rpc(name: str, params: dict):
+    res = await asyncio.to_thread(lambda: supabase.rpc(name, params).execute())
+    return res.data
 
 
-async def calculate_meal_recommendations(user_id: UserMessageRequest, preferences: ClassificationResult, top_k: int = 3) -> List[MealRecommendation]:
-    if not MEAL_CACHE:
-        print("Warning: MEAL_CACHE is empty!")
-        return []
+async def _liked_main_tags(user_id: str) -> list:
+    tags = await _rpc("liked_main_tags", {"p_user_id": user_id}) or []
+    return sorted(tags, key=lambda t: random.expovariate(t["weight"]))
 
-    dynamic_weights = get_dynamic_weights(preferences)
 
-    scored_meals = []
+async def _recent_ids(user_id: str) -> List[int]:
+    return await _rpc("recent_recipe_ids", {"p_user_id": user_id, "p_days": REPEAT_WINDOW_DAYS}) or []
 
-    # Calculate scores for each recipe in cache
-    for recipe in MEAL_CACHE:
-        h_score = calculate_elixir_score(recipe.nutrients, dynamic_weights)
-        
-        #Temp
-        pref_score = h_score
-        
-        final_score = round((h_score + pref_score) / 2.0, 4)
 
-        scored_meals.append({
-            "recipe": recipe,
-            "health_score": h_score,
-            "liking_score": pref_score,
-            "final_score": final_score
-        })
+async def calculate_meal_recommendations(
+    user_id: str,
+    preferences: Iterable[str],
+    top_k: int = 1,
+    exclude_ids: Optional[List[int]] = None,
+    meal_type: Optional[str] = None,
+    target_kcal: Optional[float] = None,
+    target_protein: Optional[float] = None,
+    other_ids: Optional[List[int]] = None,
+    rotate: bool = True,
+) -> List[MealRecommendation]:
+    prefs = clean_preferences(preferences)
+    weights = preferences_to_weights(prefs)
+    session_exclude = list(exclude_ids or [])
 
-    scored_meals.sort(key=lambda x: x["final_score"], reverse=True)
+    def params(exclude: List[int], focus_tag: Optional[int]) -> dict:
+        return {
+            "p_weights": weights, "p_top_k": top_k, "p_user_id": user_id,
+            "p_exclude": exclude, "p_meal_type": meal_type,
+            "p_kcal": target_kcal, "p_protein": target_protein,
+            "p_other_ids": other_ids or [], "p_focus_tag": focus_tag,
+        }
 
-    top_recommendations = scored_meals[:top_k]
+    recent = await _recent_ids(user_id)
+    exclude = sorted(set(session_exclude) | set(recent))
+
+    rows, focus = [], None
+    if rotate:
+        for tag in (await _liked_main_tags(user_id))[:MAX_FOCUS_TRIES]:
+            rows = await _rpc("recommend_meals", params(exclude, tag["tag_id"]))
+            if rows:
+                focus = tag
+                break
+    if not rows:                                    # ไม่มีสูตรตรงหมวดที่ชอบ -> ไม่จำกัดหมวด
+        rows = await _rpc("recommend_meals", params(exclude, None))
+    if not rows and recent:                         # สูตรเหลือน้อยจนหมด -> ผ่อนกฎ 3 วัน
+        rows = await _rpc("recommend_meals", params(session_exclude, None))
+
+    tuned = f", tuned for {', '.join(p.replace('_', ' ') for p in prefs)}" if prefs else ""
+    picked = f" Picked from {focus['tag_name']}, which you like." if focus else ""
 
     results: List[MealRecommendation] = []
-    for item in top_recommendations:
-        rec: CachedRecipes = item["recipe"]
-        nutrients = rec.nutrients
-
+    for r in rows or []:
+        if target_kcal and meal_type:
+            pct = round(100 * r["calories"] / target_kcal)
+            reason = f"About {pct}% of your {meal_type} calorie target ({round(target_kcal)} kcal){tuned}.{picked}"
+        else:
+            reason = f"Top nutritional match with an ELIXIR Health Score of {r['health_score']}{tuned}.{picked}"
         results.append(
             MealRecommendation(
-                recipe_id=rec.recipe_id,
-                recipe_name=rec.recipe_name,
-                health_score=item["health_score"],
-                liking_score=item["liking_score"],
-                final_score=item["final_score"],
-                calories=nutrients.get("Calories", 0.0),
-                protein=nutrients.get("Protein", 0.0),
-                carb=nutrients.get("Carbohydrate", 0.0),
-                sodium=nutrients.get("Sodium", 0.0),
-                sugar=nutrients.get("Sugar", 0.0),
-                reason=f"Top nutritional match with an ELIXIR Health Score of {item['health_score']}."
+                recipe_id=r["recipe_id"],
+                recipe_name=r["recipe_name"],
+                health_score=r["health_score"],
+                liking_score=r["liking_score"],
+                final_score=r["final_score"],
+                calories=round(r["calories"]),
+                protein=round(r["protein"], 1),
+                carb=round(r["carb"], 1),
+                sodium=round(r["sodium"]),
+                sugar=round(r["sugar"], 1),
+                reason=reason,
+                meal_type=meal_type,
+                preferences=prefs,
             )
         )
-
     return results

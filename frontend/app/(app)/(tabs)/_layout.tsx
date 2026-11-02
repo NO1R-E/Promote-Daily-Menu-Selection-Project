@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +16,8 @@ import { Drawer } from "expo-router/drawer";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { useRouter } from "expo-router";
+import { onRoomsChanged } from "@/src/utils/chatRoomEvents";
 
 type ChatRoom = {
   room_id: number;
@@ -28,6 +30,10 @@ function CustomDrawerContent(props: any) {
   const { currentRoom, onSelectRoom, userId, navigation, state } = props;
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(false);
+  const reqRef = useRef(0);
+  const drawerOpen = (state?.history ?? []).some(
+    (h: any) => h.type === "drawer",
+  );
 
   // Modal State
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
@@ -36,7 +42,11 @@ function CustomDrawerContent(props: any) {
   const [newTitle, setNewTitle] = useState("");
 
   const fetchRooms = async () => {
-    if (!userId) return;
+    if (!userId) {
+      console.log("[drawer] fetchRooms skipped: no userId");
+      return;
+    }
+    const req = ++reqRef.current;
     setLoading(true);
 
     const { data, error } = await supabase
@@ -46,19 +56,42 @@ function CustomDrawerContent(props: any) {
       .order("updated_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    if (!error && data) {
-      setRooms(data);
+    console.log("[drawer] fetchRooms", {
+      req,
+      latest: reqRef.current,
+      count: data?.length,
+      ids: data?.map((r) => r.room_id),
+      error: error?.message ?? null,
+    });
 
-      if (currentRoom === null && data.length > 0) {
-        onSelectRoom(data[0].room_id.toString());
-      }
-    }
+    if (req !== reqRef.current) return;
+    if (error) console.error("[drawer] fetchRooms failed:", error.message);
+    else if (data) setRooms(data);
     setLoading(false);
   };
 
   useEffect(() => {
+    return onRoomsChanged((roomId) => {
+      console.log("[drawer] rooms-changed event", roomId);
+      if (roomId) onSelectRoom(roomId);
+      fetchRooms();
+    });
+  }, [userId]);
+
+  useEffect(() => {
     fetchRooms();
-  }, [userId, currentRoom]);
+  }, [userId]);
+
+  useEffect(() => {
+    if (drawerOpen) fetchRooms();
+  }, [drawerOpen]);
+
+  useEffect(() => {
+    return onRoomsChanged((roomId) => {
+      if (roomId) onSelectRoom(roomId);
+      fetchRooms();
+    });
+  }, [userId]);
 
   const handleLongPress = (room: ChatRoom) => {
     setSelectedRoom(room);
@@ -170,7 +203,7 @@ function CustomDrawerContent(props: any) {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {loading && rooms.length === 0 ? (
         <ActivityIndicator style={{ marginTop: 8 }} color="#FF7A00" />
       ) : (
         <FlatList
@@ -279,6 +312,20 @@ export default function TabsLayout() {
   const { user } = useAuth();
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
 
+  function PlanHeaderButton() {
+    const router = useRouter();
+    return (
+      <TouchableOpacity
+        style={styles.planHeaderBtn}
+        onPress={() => router.push("../plan")}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="calendar-outline" size={16} color="#FFFFFF" />
+        <Text style={styles.planHeaderText}>Today's plan</Text>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Drawer
@@ -314,6 +361,7 @@ export default function TabsLayout() {
             drawerIcon: ({ color, size }) => (
               <Ionicons name="chatbox" size={size} color={color} />
             ),
+            headerRight: () => <PlanHeaderButton />,
           }}
         />
         <Drawer.Screen
@@ -449,4 +497,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   saveText: { color: "#FFF", fontSize: 13, fontWeight: "600" },
+  planHeaderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#007AFF",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  planHeaderText: { color: "#FFFFFF", fontWeight: "600", fontSize: 13 },
 });

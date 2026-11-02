@@ -1,4 +1,4 @@
-export type IntentType = "usual_chat" | "meal_recommendation";
+export type IntentType = "usual_chat" | "meal_recommendation" | "meal_plan";
 
 export interface MealRecommendation {
   recipe_id: string;
@@ -7,11 +7,13 @@ export interface MealRecommendation {
   liking_score: number;
   final_score: number;
   calories: number;
+  meal_type: string;
   protein: number;
   carb: number;
   sodium: number;
   sugar: number;
   reason: string;
+  preferences: string[];
 }
 
 export interface UserMessagePayload {
@@ -32,4 +34,5 @@ export interface MessageItem {
   sender: "user" | "assistant";
   text: string;
   recommendations?: MealRecommendation[];
+  intent?: string | null;
 }

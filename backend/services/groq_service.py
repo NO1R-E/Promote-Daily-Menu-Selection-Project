@@ -2,6 +2,7 @@ import json
 import itertools
 from typing import List
 from groq import Groq, RateLimitError
+from services.preferences import PREFERENCE_WEIGHTS, clean_preferences
 from config import (
     GROQ_API_KEYS,
     GROQ_SMALL_MODEL,
@@ -12,23 +13,34 @@ from schemas import ClassificationResult, ChatMessage
 # Round-Robin cycle across your Groq keys
 _key_cycle = itertools.cycle(GROQ_API_KEYS) if GROQ_API_KEYS else None
 
-INTENT_SYSTEM_PROMPT = """
-You are an intent classification engine for a meal and nutrition assistant.
-Classify the user input strictly into ONE of these two intents:
+_ALLOWED = ", ".join(f'"{k}"' for k in PREFERENCE_WEIGHTS)
 
-1. "meal_recommendation": User is directly or indirectly asking for food, dish ideas, meal plans, or dietary recommendations.
-2. "usual_chat": General conversation, greetings, nutrition questions, or recipe follow-ups.
+INTENT_SYSTEM_PROMPT = f"""
+You are an intent classification engine for a meal and nutrition assistant.
+Classify the user input strictly into ONE of these intents:
+
+1. "meal_recommendation": the user wants ideas for ONE dish or ONE meal (e.g. "what should I eat for lunch?").
+2. "meal_plan": the user wants a whole day, or several meals, planned at once (e.g. "plan my meals for today", "what should I eat all day?").
+3. "usual_chat": general conversation, greetings, nutrition questions, or recipe follow-ups.
 
 Output MUST be a valid JSON object following this format:
-{
-  "intent": "usual_chat" | "meal_recommendation",
-  "preferences": ["extracted preference 1", "extracted preference 2"]
-}
+{{
+  "intent": "usual_chat" | "meal_recommendation" | "meal_plan",
+  "meal_type": null,
+  "preferences": []
+}}
+
+Rules for meal_type:
+- Only for "meal_recommendation": "breakfast", "lunch", "dinner" or "snack" if the user names a meal or a clear time of day. Otherwise null.
+- For every other intent, null.
 
 Rules for preferences:
-- Extract dietary needs, taste constraints, or health goals into standardized lowercase terms (e.g., "low salt", "no sweet", "high protein").
-- Consider both past context and the new message when extracting preferences.
-- If intent is "usual_chat" or no preferences exist, return an empty array [].
+- "preferences" may ONLY contain values from this list: {_ALLOWED}.
+- Map the user's wording to the closest value, e.g. "less salty" -> "low_sodium",
+  "not too sweet" -> "low_sugar", "more protein" -> "high_protein".
+- Never invent new values. If nothing in the list applies, return [].
+- Consider both past context and the new message.
+- If intent is "usual_chat", return [].
 """
 
 def get_groq_client() -> Groq:
@@ -76,14 +88,26 @@ async def classify_intent(message: str, history: List[ChatMessage] = []) -> Clas
     messages.append({"role": "user", "content": message})
 
     raw_json = await execute_groq_request(
-        messages=messages, 
-        model=GROQ_SMALL_MODEL, 
-        response_format={"type": "json_object"}
+        messages=messages,
+        model=GROQ_SMALL_MODEL,
+        response_format={"type": "json_object"},
     )
-    return ClassificationResult(**json.loads(raw_json))
+    print(f"Raw classification result: {raw_json}")
+    result = ClassificationResult(**json.loads(raw_json))
+    result.preferences = clean_preferences(result.preferences)   # clean generated preferences
+    return result
 
 async def generate_usual_chat(message: str, history: List[ChatMessage] = []) -> str:
-    messages = [{"role": "system", "content": "You are a helpful meal and nutrition assistant."}]
+    system_prompt = (
+        "You are a helpful meal and nutrition assistant designed for a mobile chat UI.\n"
+        "Guidelines:\n"
+        "- Keep answers short, direct, and easy to read on a mobile screen (1-3 sentences max).\n"
+        "- Avoid long explanations unless specifically asked for details.\n"
+        "- Do not overload the user with multiple options or questions.\n"
+        "- If appropriate, end with at most ONE simple follow-up question."
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
     
     for chat in history:
         messages.append({"role": chat.role, "content": chat.content})

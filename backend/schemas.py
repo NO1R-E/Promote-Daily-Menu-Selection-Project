@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class IntentEnum(str, Enum):
     USUAL_CHAT = "usual_chat"
     MEAL_RECOMMENDATION = "meal_recommendation"
+    MEAL_PLAN = "meal_plan"
 
 class UserMessageRequest(BaseModel):
     user_id: str
@@ -13,17 +14,20 @@ class UserMessageRequest(BaseModel):
 
 class ClassificationResult(BaseModel):
     intent: IntentEnum
+    meal_type: Optional[str] = None
     preferences: List[str] = Field(
         default=[],
         description="Extracted constraints like dietary restrictions, health goals, or specific ingredients."
     )
 
 class MealRecommendation(BaseModel):
-    recipe_id: str
+    recipe_id: int
     recipe_name: str
     health_score: float
     liking_score: float
     final_score: float
+    meal_type: Optional[str] = None
+    preferences: List[str] = []
     calories: float
     protein: float
     carb: float

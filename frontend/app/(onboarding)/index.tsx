@@ -62,7 +62,10 @@ export default function OnboardingWizard() {
   }, [user]);
 
   // เซฟ draft ทุกครั้งที่กด Next - เก็บแค่ formData + step ปัจจุบัน ไม่แตะตารางจริงเลย
-  const saveDraft = async (nextStep: number, mergedData: OnboardingFormData) => {
+  const saveDraft = async (
+    nextStep: number,
+    mergedData: OnboardingFormData,
+  ) => {
     if (!user) return;
     try {
       const { error } = await supabase.from("onboarding_drafts").upsert(
@@ -72,7 +75,7 @@ export default function OnboardingWizard() {
           form_data: mergedData,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "user_id" }
+        { onConflict: "user_id" },
       );
       if (error) throw error;
     } catch (error) {
@@ -116,7 +119,7 @@ export default function OnboardingWizard() {
       await supabase.from("onboarding_drafts").delete().eq("user_id", user.id);
 
       await refreshUserData();
-      router.replace("/(app)/(tabs)/chatbot");
+      router.replace("/(app)/(tabs)/forum");
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to complete onboarding.");
     } finally {

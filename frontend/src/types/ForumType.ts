@@ -1,5 +1,6 @@
 export type ForumPost = {
   recipe_forum_id: number;
+  user_id: string;
   title: string;
   caption: string | null;
   hashtags: string[];

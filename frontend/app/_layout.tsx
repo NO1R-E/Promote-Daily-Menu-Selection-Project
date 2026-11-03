@@ -1,28 +1,32 @@
 import { AuthProvider, useAuth } from "@/src/contexts/AuthContext"; // Fix path to your context file
+import { ChatRoomProvider } from "@/src/contexts/ChatRoomContext";
 import { HealthProvider } from "@/src/contexts/HealthContext";
 import { Stack, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 function NavigationGate() {
-  const { user, loading, onboardingStatus, isAdmin, homeRoute, terms_accepted } = useAuth();
+  const {
+    user,
+    loading,
+    onboardingStatus,
+    isAdmin,
+    homeRoute,
+    terms_accepted,
+    ban,
+  } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    console.log(ban);
     if (loading) return;
-    if (!user) {
-      router.replace("/(auth)/login");
-    } else if (isAdmin) {
-      router.replace(homeRoute);
-    } else if (user && !terms_accepted) {
-      router.replace("/(onboarding)/terms-consent");
-    } else if (user && onboardingStatus === "not_started") {
-      //router.replace("/(app)/(tabs)/chatbot");
+    if (!user) router.replace("/(auth)/login");
+    else if (ban) router.replace("/suspended");
+    else if (!terms_accepted) router.replace("/(onboarding)/terms-consent");
+    else if (!isAdmin && onboardingStatus === "not_started")
       router.replace("/(onboarding)");
-    } else {
-      router.replace(homeRoute);
-    }
-  }, [user, loading, onboardingStatus]);
+    else router.replace(homeRoute);
+  }, [user, loading, onboardingStatus, isAdmin, terms_accepted, ban]);
 
   if (loading) {
     return (
@@ -52,7 +56,9 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <HealthProvider>
-        <NavigationGate />
+        <ChatRoomProvider>
+          <NavigationGate />
+        </ChatRoomProvider>
       </HealthProvider>
     </AuthProvider>
   );

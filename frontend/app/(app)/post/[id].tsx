@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import PostMenuSheet from "@/components/PostMenuSheet";
 import RecordMealSheet from "@/components/RecordMealSheet";
 import ReportModal from "@/components/ReportModal";
 import {
@@ -29,9 +30,11 @@ import {
   TodayLog,
   undoLog,
 } from "@/src/api/record";
+import { fetchRecipeDetail, RecipeDetail } from "@/src/api/recipeDetail";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ForumPost } from "@/src/types/ForumType";
 import { localDateString, timeAgo } from "@/src/utils/date";
+import { confirmDeletePost, openEditPost } from "@/src/utils/postActions";
 
 export default function PostScreen() {
   const router = useRouter();
@@ -40,32 +43,58 @@ export default function PostScreen() {
   const postId = Number(id);
 
   const [post, setPost] = useState<ForumPost | null>(null);
+  const [detail, setDetail] = useState<RecipeDetail | null>(null);
+  const hasLoaded = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportVisible, setReportVisible] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const [todayLogs, setTodayLogs] = useState<TodayLog[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [recording, setRecording] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const next = await fetchForumPost(postId, user?.id);
-      setPost(next);
-      if (!next) setError("This post isn't available any more.");
-    } catch (err: any) {
-      setError(err.message ?? "Couldn't load this post.");
-    } finally {
-      setLoading(false);
-    }
-  }, [postId, user?.id]);
+  // silent = refresh in place (no spinner), used when the screen regains focus after an edit
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(null);
+      try {
+        const next = await fetchForumPost(postId, user?.id);
+        setPost(next);
+        if (!next) {
+          setError("This post isn't available any more.");
+          setDetail(null);
+        } else {
+          const rid = next.recipes?.recipe_id;
+          if (rid != null) {
+            try {
+              setDetail(await fetchRecipeDetail(Number(rid)));
+            } catch (err) {
+              console.error("Loading recipe detail failed:", err);
+              setDetail(null);
+            }
+          } else {
+            setDetail(null);
+          }
+        }
+        hasLoaded.current = true;
+      } catch (err: any) {
+        setError(err.message ?? "Couldn't load this post.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [postId, user?.id],
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Runs on first open and every time we come back (e.g. after Edit -> Save)
+  useFocusEffect(
+    useCallback(() => {
+      load(hasLoaded.current);
+    }, [load]),
+  );
 
   const refreshLogs = useCallback(async () => {
     if (!user?.id) {
@@ -150,6 +179,27 @@ export default function PostScreen() {
   const recipe = post?.recipes ?? null;
   const author = post?.profiles ?? null;
   const recipeId = recipe?.recipe_id ?? null;
+  const isMine = !!user && !!post && post.user_id === user.id;
+
+  // เมนูสามจุด: รอให้เมนูปิดก่อนค่อยเปิด Alert (iOS เปิดซ้อนกันทันทีไม่ได้)
+  const menuEdit = () => {
+    setMenuVisible(false);
+    if (post) setTimeout(() => openEditPost(router, post.recipe_forum_id), 250);
+  };
+
+  const menuDelete = () => {
+    setMenuVisible(false);
+    if (!post) return;
+    const forumId = post.recipe_forum_id;
+    setTimeout(
+      () =>
+        confirmDeletePost(forumId, () => {
+          markForumDirty();
+          goBack();
+        }),
+      250,
+    );
+  };
 
   // วันนี้บันทึกสูตรนี้ไว้แล้วหรือยัง + มื้อไหนบ้างที่มีบันทึกวันนี้
   const myLog =
@@ -216,7 +266,7 @@ export default function PostScreen() {
           <Text style={styles.errorText}>
             {error ?? "This post isn't available any more."}
           </Text>
-          <TouchableOpacity onPress={load}>
+          <TouchableOpacity onPress={() => load()}>
             <Text style={styles.retry}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -262,12 +312,25 @@ export default function PostScreen() {
                     color={post.is_saved ? "#FF7A00" : "#666"}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => setReportVisible(true)}
-                >
-                  <Ionicons name="flag-outline" size={21} color="#666" />
-                </TouchableOpacity>
+                {isMine ? (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => setMenuVisible(true)}
+                  >
+                    <Ionicons
+                      name="ellipsis-horizontal"
+                      size={21}
+                      color="#666"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => setReportVisible(true)}
+                  >
+                    <Ionicons name="flag-outline" size={21} color="#666" />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
@@ -280,6 +343,14 @@ export default function PostScreen() {
               {recipe.recipe_name}
               {recipe.serving ? ` · serves ${recipe.serving}` : ""}
             </Text>
+            {!!detail?.cuisine.length && (
+              <View style={styles.cuisineChip}>
+                <Ionicons name="earth-outline" size={14} color="#C96A0A" />
+                <Text style={styles.cuisineText}>
+                  {detail.cuisine.map((c) => c.name).join(", ")}
+                </Text>
+              </View>
+            )}
             {!!post.caption && (
               <Text style={styles.description}>{post.caption}</Text>
             )}
@@ -313,7 +384,15 @@ export default function PostScreen() {
             </TouchableOpacity>
 
             <Text style={styles.sectionHeader}>Ingredients</Text>
-            {recipe.recipe_ingredients.length > 0 ? (
+            {detail && detail.ingredients.length > 0 ? (
+              detail.ingredients.map((ing, i) => (
+                <Text key={i} style={styles.bodyText}>
+                  • {ing.name}
+                  {ing.weight_g ? ` — ${ing.weight_g}g` : ""}
+                  {ing.isUser ? "  (custom)" : ""}
+                </Text>
+              ))
+            ) : recipe.recipe_ingredients.length > 0 ? (
               recipe.recipe_ingredients.map((ri, i) => (
                 <Text key={i} style={styles.bodyText}>
                   • {ri.ingredients?.norm_en ?? "Unknown ingredient"}
@@ -325,13 +404,35 @@ export default function PostScreen() {
             )}
 
             <Text style={styles.sectionHeader}>Step-by-step</Text>
-            {recipe.recipe_body ? (
+            {detail && detail.steps.length > 0 ? (
+              detail.steps.map((s) => (
+                <View key={s.step_no} style={styles.stepBlock}>
+                  <Text style={styles.stepNo}>Step {s.step_no}</Text>
+                  <Text style={styles.bodyText}>{s.description}</Text>
+                  {s.img.length > 0 && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.stepImages}
+                    >
+                      {s.img.map((uri, k) => (
+                        <Image
+                          key={k}
+                          source={{ uri }}
+                          style={styles.stepImg}
+                        />
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+              ))
+            ) : recipe.recipe_body ? (
               recipe.recipe_body
                 .split("\n")
                 .filter(Boolean)
                 .map((step, i) => (
                   <Text key={i} style={styles.bodyText}>
-                    {i + 1}. {step}
+                    {step}
                   </Text>
                 ))
             ) : (
@@ -347,6 +448,13 @@ export default function PostScreen() {
           </View>
         </ScrollView>
       )}
+
+      <PostMenuSheet
+        visible={menuVisible}
+        onEdit={menuEdit}
+        onDelete={menuDelete}
+        onClose={() => setMenuVisible(false)}
+      />
 
       <RecordMealSheet
         visible={sheetVisible}
@@ -477,4 +585,27 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bodyText: { fontSize: 14, color: "#555", lineHeight: 22, marginBottom: 8 },
+  cuisineChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    backgroundColor: "#FFF5EA",
+    borderWidth: 1,
+    borderColor: "#F6C48F",
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  cuisineText: { fontSize: 12, fontWeight: "600", color: "#C96A0A" },
+  stepBlock: { marginBottom: 6 },
+  stepNo: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#C96A0A",
+    marginBottom: 2,
+  },
+  stepImages: { gap: 8, paddingBottom: 8 },
+  stepImg: { width: 140, height: 140, borderRadius: 10 },
 });

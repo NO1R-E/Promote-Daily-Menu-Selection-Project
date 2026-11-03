@@ -8,4 +8,5 @@ export type AuthState = {
   terms_accepted: boolean | null;
   onboardingStatus: 'not_started' | 'skipped' | 'completed';
   loading: boolean;
+  ban: any | null;
 };

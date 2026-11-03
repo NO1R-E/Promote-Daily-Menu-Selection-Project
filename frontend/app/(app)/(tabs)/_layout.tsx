@@ -17,7 +17,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useRouter } from "expo-router";
-import { onRoomsChanged } from "@/src/utils/chatRoomEvents";
+import { emitRoomDeleted, onRoomsChanged } from "@/src/utils/chatRoomEvents";
+import { useChatRoom } from "@/src/contexts/ChatRoomContext";
 
 type ChatRoom = {
   room_id: number;
@@ -27,13 +28,14 @@ type ChatRoom = {
 };
 
 function CustomDrawerContent(props: any) {
-  const { currentRoom, onSelectRoom, userId, navigation, state } = props;
+  const { userId, navigation, state, isAdmin } = props;
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(false);
   const reqRef = useRef(0);
   const drawerOpen = (state?.history ?? []).some(
     (h: any) => h.type === "drawer",
   );
+  const { currentRoom, setCurrentRoom } = useChatRoom();
 
   // Modal State
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
@@ -43,7 +45,6 @@ function CustomDrawerContent(props: any) {
 
   const fetchRooms = async () => {
     if (!userId) {
-      console.log("[drawer] fetchRooms skipped: no userId");
       return;
     }
     const req = ++reqRef.current;
@@ -56,14 +57,6 @@ function CustomDrawerContent(props: any) {
       .order("updated_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    console.log("[drawer] fetchRooms", {
-      req,
-      latest: reqRef.current,
-      count: data?.length,
-      ids: data?.map((r) => r.room_id),
-      error: error?.message ?? null,
-    });
-
     if (req !== reqRef.current) return;
     if (error) console.error("[drawer] fetchRooms failed:", error.message);
     else if (data) setRooms(data);
@@ -72,8 +65,7 @@ function CustomDrawerContent(props: any) {
 
   useEffect(() => {
     return onRoomsChanged((roomId) => {
-      console.log("[drawer] rooms-changed event", roomId);
-      if (roomId) onSelectRoom(roomId);
+      if (roomId) setCurrentRoom(roomId);
       fetchRooms();
     });
   }, [userId]);
@@ -85,13 +77,6 @@ function CustomDrawerContent(props: any) {
   useEffect(() => {
     if (drawerOpen) fetchRooms();
   }, [drawerOpen]);
-
-  useEffect(() => {
-    return onRoomsChanged((roomId) => {
-      if (roomId) onSelectRoom(roomId);
-      fetchRooms();
-    });
-  }, [userId]);
 
   const handleLongPress = (room: ChatRoom) => {
     setSelectedRoom(room);
@@ -136,9 +121,10 @@ function CustomDrawerContent(props: any) {
             if (error) {
               Alert.alert("Error", "Could not delete chat room.");
             } else {
+              emitRoomDeleted(String(selectedRoom.room_id));
               if (String(currentRoom) === String(selectedRoom.room_id)) {
-                onSelectRoom(null);
-                navigation.navigate("chatbot", { currentRoom: null });
+                setCurrentRoom(null);
+                navigation.navigate("chatbot");
               }
               setIsModalVisible(false);
               fetchRooms();
@@ -154,6 +140,9 @@ function CustomDrawerContent(props: any) {
     { name: "chatbot", label: "ChatBot", icon: "chatbox" },
     { name: "record", label: "Record", icon: "fitness" },
     { name: "profile", label: "Profile", icon: "person-circle" },
+    ...(isAdmin
+      ? [{ name: "admin", label: "Admin", icon: "shield-checkmark" }]
+      : []),
   ];
 
   const activeRouteName = state?.routes[state?.index]?.name;
@@ -193,8 +182,8 @@ function CustomDrawerContent(props: any) {
         <TouchableOpacity
           style={styles.newChatBtn}
           onPress={() => {
-            onSelectRoom(null);
-            navigation.navigate("chatbot", { currentRoom: null });
+            setCurrentRoom(null);
+            navigation.navigate("chatbot");
             navigation.closeDrawer();
           }}
         >
@@ -221,8 +210,8 @@ function CustomDrawerContent(props: any) {
                 style={[styles.roomItem, isSelected && styles.roomItemActive]}
                 onPress={() => {
                   const roomIdStr = item.room_id.toString();
-                  onSelectRoom(roomIdStr);
-                  navigation.navigate("chatbot", { currentRoom: roomIdStr });
+                  setCurrentRoom(roomIdStr);
+                  navigation.navigate("chatbot");
                   navigation.closeDrawer();
                 }}
                 onLongPress={() => handleLongPress(item)}
@@ -308,34 +297,28 @@ function CustomDrawerContent(props: any) {
   );
 }
 
-export default function TabsLayout() {
-  const { user } = useAuth();
-  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
+function PlanHeaderButton() {
+  const router = useRouter();
+  return (
+    <TouchableOpacity
+      style={styles.planHeaderBtn}
+      onPress={() => router.push("../plan")}
+      activeOpacity={0.85}
+    >
+      <Ionicons name="calendar-outline" size={16} color="#FFFFFF" />
+      <Text style={styles.planHeaderText}>Today's plan</Text>
+    </TouchableOpacity>
+  );
+}
 
-  function PlanHeaderButton() {
-    const router = useRouter();
-    return (
-      <TouchableOpacity
-        style={styles.planHeaderBtn}
-        onPress={() => router.push("../plan")}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="calendar-outline" size={16} color="#FFFFFF" />
-        <Text style={styles.planHeaderText}>Today's plan</Text>
-      </TouchableOpacity>
-    );
-  }
+export default function TabsLayout() {
+  const { user, isAdmin } = useAuth();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Drawer
         drawerContent={(props) => (
-          <CustomDrawerContent
-            {...props}
-            userId={user?.id}
-            currentRoom={currentRoom}
-            onSelectRoom={(roomId: string | null) => setCurrentRoom(roomId)}
-          />
+          <CustomDrawerContent {...props} userId={user?.id} isAdmin={isAdmin} />
         )}
         screenOptions={{
           drawerActiveTintColor: "orange",
@@ -383,6 +366,10 @@ export default function TabsLayout() {
               <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
+        />
+        <Drawer.Screen
+          name="admin"
+          options={{ title: "Admin", headerShown: false }}
         />
       </Drawer>
     </GestureHandlerRootView>
@@ -501,7 +488,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#FF7A00",
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,

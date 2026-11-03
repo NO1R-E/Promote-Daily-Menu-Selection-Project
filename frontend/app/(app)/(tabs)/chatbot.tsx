@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { sendChatMessage } from "../../../src/api/sendChatMessage";
 import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
 import { HealthBanner } from "@/components/HealthBanner";
@@ -23,6 +23,7 @@ import { localDateString } from "@/src/utils/date";
 import { openRecipeInForum } from "@/src/utils/openRecipe";
 import { anotherMeal } from "@/src/api/meal";
 import { emitRoomsChanged, onRoomDeleted } from "@/src/utils/chatRoomEvents";
+import { useChatRoom } from "@/src/contexts/ChatRoomContext";
 
 // metadata ที่เก็บในฐานข้อมูลเป็น {"recommendations":[...]} (บางแถวเก่าอาจเป็น array ตรง ๆ)
 function parseRecommendations(metadata: string | null): MealRecommendation[] {
@@ -45,6 +46,7 @@ export default function ChatbotScreen() {
   const [loading, setLoading] = useState(false);
   const { isServerHealthy } = useHealth();
   const { user } = useAuth();
+  const { currentRoom, setCurrentRoom } = useChatRoom();
 
   const router = useRouter();
 
@@ -54,17 +56,6 @@ export default function ChatbotScreen() {
   const [busyKey, setBusyKey] = useState<string | null>(null); // กำลังขอ Another
   const [loggingKey, setLoggingKey] = useState<string | null>(null); // กำลังบันทึก/ยกเลิก
   const [logged, setLogged] = useState<Record<string, string>>({}); // cardKey -> record_item_id
-
-  const params = useLocalSearchParams<{ currentRoom?: string }>();
-  const [currentRoom, setCurrentRoom] = useState<string | null>(
-    params.currentRoom ?? null,
-  );
-
-  useEffect(() => {
-    if (params.currentRoom !== undefined) {
-      setCurrentRoom(params.currentRoom);
-    }
-  }, [params.currentRoom]);
 
   // เข้าห้องเดิม: การ์ดที่วันนี้บันทึกไปแล้วต้องขึ้น Logged และล็อก Another
   const hydrateLogged = async (items: MessageItem[]) => {
@@ -99,8 +90,10 @@ export default function ChatbotScreen() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchRoomMessages = async () => {
-      // ห้องที่เพิ่งสร้างจากหน้านี้: ข้อความอยู่บนจออยู่แล้ว ไม่โหลดทับ
+      if (!user?.id) return;
       if (skipFetchRef.current) {
         skipFetchRef.current = false;
         return;
@@ -120,7 +113,11 @@ export default function ChatbotScreen() {
         .eq("room_id", numericRoomId)
         .order("created_at", { ascending: true });
 
-      if (!error && data) {
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Error pulling room history:", error);
+      } else if (data) {
         const items: MessageItem[] = data.map((m: any) => ({
           id: String(m.massage_id),
           sender: m.sender,
@@ -130,16 +127,16 @@ export default function ChatbotScreen() {
         }));
         setMessages(items);
         await hydrateLogged(items);
-      } else if (error) {
-        console.error("Error pulling room history:", error);
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     };
 
     fetchRoomMessages();
+    return () => {
+      cancelled = true;
+    };
   }, [currentRoom, user?.id]);
 
-  // เลื่อนไปข้อความล่าสุดเมื่อจำนวนข้อความเปลี่ยน (โหลดประวัติ / ส่งข้อความใหม่)
   useEffect(() => {
     if (messages.length === 0) return;
     const t = setTimeout(
@@ -153,7 +150,7 @@ export default function ChatbotScreen() {
     return onRoomDeleted((deletedId) => {
       if (currentRoom === deletedId) {
         skipFetchRef.current = false;
-        setCurrentRoom(null); // effect โหลดห้องจะล้างข้อความให้เอง
+        setCurrentRoom(null);
         setLogged({});
       }
     });
@@ -198,7 +195,6 @@ export default function ChatbotScreen() {
         const newRoom = String(data.room_id);
         skipFetchRef.current = true;
         setCurrentRoom(newRoom);
-        router.setParams({ currentRoom: newRoom });
         emitRoomsChanged(newRoom);
       }
 
@@ -365,7 +361,7 @@ export default function ChatbotScreen() {
           style={styles.suggestionCard}
           onPress={() => setInputText("Recommend a meal")}
         >
-          <Ionicons name="restaurant-outline" size={20} color="#007AFF" />
+          <Ionicons name="restaurant-outline" size={20} color="#FF7A00" />
           <View style={styles.suggestionTextWrapper}>
             <Text style={styles.suggestionTitle}>Recommend a meal</Text>
             <Text style={styles.suggestionSub}>
@@ -379,7 +375,7 @@ export default function ChatbotScreen() {
           style={styles.suggestionCard}
           onPress={() => setInputText("!help")}
         >
-          <Ionicons name="help-circle-outline" size={20} color="#34C759" />
+          <Ionicons name="help-circle-outline" size={20} color="#FF7A00" />
           <View style={styles.suggestionTextWrapper}>
             <Text style={styles.suggestionTitle}>!help</Text>
             <Text style={styles.suggestionSub}>
@@ -460,7 +456,7 @@ export default function ChatbotScreen() {
             disabled={isLogged || !!busyKey || !!loggingKey}
           >
             {anotherBusy ? (
-              <ActivityIndicator size="small" color="#007AFF" />
+              <ActivityIndicator size="small" color="#FF7A00" />
             ) : (
               <Text style={styles.cardBtnText}>Another</Text>
             )}
@@ -478,7 +474,7 @@ export default function ChatbotScreen() {
             {logBusy ? (
               <ActivityIndicator
                 size="small"
-                color={isLogged ? "#2E7D32" : "#007AFF"}
+                color={isLogged ? "#2E7D32" : "#FF7A00"}
               />
             ) : isLogged ? (
               <View style={styles.loggedRow}>
@@ -550,7 +546,7 @@ export default function ChatbotScreen() {
         }}
       />
 
-      {loading && <ActivityIndicator style={styles.loader} color="#007AFF" />}
+      {loading && <ActivityIndicator style={styles.loader} color="#FF7A00" />}
 
       <View style={styles.inputBar}>
         <TextInput
@@ -575,7 +571,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F5F5" },
   listContent: { padding: 16, gap: 10 },
   bubble: { maxWidth: "85%", padding: 12, borderRadius: 16 },
-  userBubble: { alignSelf: "flex-end", backgroundColor: "#007AFF" },
+  userBubble: { alignSelf: "flex-end", backgroundColor: "#FF7A00" },
   assistantBubble: { alignSelf: "flex-start", backgroundColor: "#E5E5EA" },
   bubbleText: { fontSize: 15 },
   userText: { color: "#FFFFFF" },
@@ -603,7 +599,7 @@ const styles = StyleSheet.create({
     color: "#1C1C1E",
   },
   scoreBadge: {
-    backgroundColor: "#E8F5E9",
+    backgroundColor: "#FFF3E0",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -611,7 +607,7 @@ const styles = StyleSheet.create({
   scoreText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#2E7D32",
+    color: "#E66E00",
   },
   nutritionRow: {
     flexDirection: "row",
@@ -621,7 +617,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     flexDirection: "row",
-    backgroundColor: "#F2F2F7",
+    backgroundColor: "#FFF8F0",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -638,16 +634,16 @@ const styles = StyleSheet.create({
     color: "#1C1C1E",
   },
   reasonBox: {
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "#FFF8F0",
     padding: 8,
     borderRadius: 8,
     borderLeftWidth: 3,
-    borderLeftColor: "#007AFF",
+    borderLeftColor: "#FF7A00",
   },
   reasonTitle: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#007AFF",
+    color: "#FF7A00",
     marginBottom: 2,
   },
   reasonText: {
@@ -668,11 +664,11 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#007AFF",
+    borderColor: "#FF7A00",
     alignItems: "center",
     justifyContent: "center",
   },
-  cardBtnText: { color: "#007AFF", fontWeight: "600", fontSize: 14 },
+  cardBtnText: { color: "#FF7A00", fontWeight: "600", fontSize: 14 },
   cardBtnLocked: { opacity: 0.4 },
   cardBtnLogged: { borderColor: "#2E7D32", backgroundColor: "#E8F5E9" },
   cardBtnTextLogged: { color: "#2E7D32", fontWeight: "600", fontSize: 14 },
@@ -702,7 +698,7 @@ const styles = StyleSheet.create({
   sendBtnDisabled: {
     opacity: 0.5,
   },
-  sendText: { color: "#007AFF", fontWeight: "600" },
+  sendText: { color: "#FF7A00", fontWeight: "600" },
   suggestionsContainer: {
     marginBottom: 16,
     gap: 10,
@@ -714,11 +710,11 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEAD5",
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: "#FF7A00",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.08,
     shadowRadius: 2,
     elevation: 1,
   },

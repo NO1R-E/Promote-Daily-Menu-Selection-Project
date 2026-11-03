@@ -55,7 +55,8 @@ export default function MealShareSliders({
               maximumValue={60}
               step={1}
               value={pct}
-              minimumTrackTintColor="#007AFF"
+              minimumTrackTintColor="#FF7A00"
+              thumbTintColor="#FF7A00"
               onValueChange={(v) =>
                 onChange({ ...shares, [slot]: Math.round(v) })
               }
@@ -68,22 +69,27 @@ export default function MealShareSliders({
       })}
 
       <View style={styles.totalRow}>
-        <Text style={[styles.total, !ok && styles.totalWarn]}>
-          {ok
-            ? "Covers your full day (100%)"
-            : total < 100
-              ? `${100 - total}% of your day is unassigned`
-              : `${total - 100}% over your daily target`}
-        </Text>
+        <View style={styles.statusBadge}>
+          <Text style={[styles.total, !ok && styles.totalYellow]}>
+            {ok
+              ? "Sum: 100% (Covers full day)"
+              : total < 100
+                ? `Sum: ${total}% (${100 - total}% unassigned)`
+                : `Sum: ${total}% (${total - 100}% over target)`}
+          </Text>
+        </View>
+
         {!ok && (
           <TouchableOpacity
+            style={styles.balanceBtn}
+            activeOpacity={0.8}
             onPress={() => {
               const next = balanced(shares);
               onChange(next);
               onCommit(next);
             }}
           >
-            <Text style={styles.balance}>Balance to 100%</Text>
+            <Text style={styles.balanceText}>Balance to 100%</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -112,9 +118,37 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    height: 32, // Fixed height prevents lower content jump
+    marginTop: 4,
   },
-  total: { fontSize: 13, color: "#2E7D32", fontWeight: "500" },
-  totalWarn: { color: "#B26A00" },
-  balance: { fontSize: 13, color: "#007AFF", fontWeight: "600" },
-  hint: { fontSize: 11, color: "#8E8E93", marginTop: 6 },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  total: {
+    fontSize: 13,
+    color: "#2E7D32",
+    fontWeight: "700",
+  },
+  totalYellow: {
+    color: "#F57F17",
+    fontWeight: "700",
+  },
+  balanceBtn: {
+    backgroundColor: "#FF7A00",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    shadowColor: "#FF7A00",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  balanceText: {
+    fontSize: 12,
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  hint: { fontSize: 11, color: "#8E8E93", marginTop: 4 },
 });

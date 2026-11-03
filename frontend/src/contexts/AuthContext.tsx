@@ -15,6 +15,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     terms_accepted: false,
     onboardingStatus: "not_started",
     loading: true,
+    ban: null,
   });
 
   const clearState = () => {
@@ -26,23 +27,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       terms_accepted: false,
       onboardingStatus: "not_started",
       loading: false,
+      ban: null,
     });
   };
 
   const fetchExtendedUserData = async (userId: string, activeSession: any) => {
     try {
-      const { data: prof, error: profError } = await supabase
+      const { data: prof } = await supabase
         .from("profiles")
         .select("*")
         .eq("profile_id", userId)
         .single();
 
-      if (prof?.user_status === true) {
-        await supabase.auth.signOut();
-        clearState();
-        console.log("User is banned. Logging out.");
-        return;
-      }
+      const { data: banRows } = await supabase.rpc("get_my_ban");
+      const ban = banRows?.[0] ?? null;
 
       const { data: metrics } = await supabase
         .from("personalData")
@@ -63,6 +61,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         personalData: metrics,
         terms_accepted: prof?.terms_accepted || false,
         onboardingStatus: prof?.onboarding_status || "not_started",
+        ban,
         loading: false,
       });
     } catch (error) {
@@ -109,8 +108,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   //console.log(state.session?.user.id);
   //console.log(state.profile);
   const isAdmin = state.profile?.role === "admin";
-
-  const homeRoute = isAdmin ? "/(admin)" : "/(app)/(tabs)/forum";
+  const homeRoute = "/(app)/(tabs)/forum";
 
   return (
     <AuthContext.Provider

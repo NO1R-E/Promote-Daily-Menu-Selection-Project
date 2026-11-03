@@ -31,7 +31,6 @@ import { openRecipeInForum } from "@/src/utils/openRecipe";
 type Seen = Record<Slot, number[]>;
 type Ate = Partial<Record<Slot, string>>;
 
-
 const cache: { key?: string; plan?: Plan; seen?: Seen; ate?: Ate } = {};
 const EMPTY_SEEN: Seen = { breakfast: [], lunch: [], dinner: [] };
 
@@ -257,7 +256,7 @@ export default function PlanScreen() {
           style={styles.headerBtn}
           onPress={() => setShowTargets((v) => !v)}
         >
-          <Ionicons name="options-outline" size={22} color="#007AFF" />
+          <Ionicons name="options-outline" size={22} color="#FF7A00" />
         </TouchableOpacity>
       </View>
 
@@ -426,7 +425,7 @@ function SlotCard({
           </Text>
           {fit !== null && (
             <Text
-              style={[styles.fit, { color: fitOk ? "#2E7D32" : "#B26A00" }]}
+              style={[styles.fit, { color: fitOk ? "#2E7D32" : "#E66E00" }]}
             >
               {fit}% of the meal target
             </Text>
@@ -452,7 +451,7 @@ function SlotCard({
                   disabled={busy || !online}
                 >
                   {busy ? (
-                    <ActivityIndicator size="small" color="#007AFF" />
+                    <ActivityIndicator size="small" color="#FF7A00" />
                   ) : (
                     <Text style={styles.actionText}>Reroll</Text>
                   )}
@@ -464,7 +463,7 @@ function SlotCard({
                   <Text style={styles.actionText}>Ate it</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionBtn} onPress={onClear}>
-                  <Ionicons name="close" size={18} color="#007AFF" />
+                  <Ionicons name="close" size={18} color="#FF7A00" />
                 </TouchableOpacity>
               </>
             )}
@@ -497,9 +496,9 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: "bold" },
   content: { padding: 16, gap: 12 },
   dailyLine: { fontSize: 13, color: "#6C6C70" },
-  stale: { fontSize: 13, color: "#B26A00" },
+  stale: { fontSize: 13, color: "#E66E00" },
   generateBtn: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#FF7A00",
     height: 48,
     borderRadius: 10,
     alignItems: "center",
@@ -551,12 +550,12 @@ const styles = StyleSheet.create({
     minWidth: 38,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#007AFF",
+    borderColor: "#FF7A00",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
   },
-  actionText: { color: "#007AFF", fontWeight: "600", fontSize: 14 },
+  actionText: { color: "#FF7A00", fontWeight: "600", fontSize: 14 },
   summary: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
@@ -579,6 +578,6 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   barTrack: { height: 6, backgroundColor: "#F0F0F0", borderRadius: 3 },
-  barFill: { height: 6, backgroundColor: "#007AFF", borderRadius: 3 },
+  barFill: { height: 6, backgroundColor: "#FF7A00", borderRadius: 3 },
   summaryNote: { fontSize: 12, color: "#6C6C70", marginTop: 8 },
 });

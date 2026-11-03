@@ -15,6 +15,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import ReportModal from "@/components/ReportModal";
+import PostMenuSheet from "@/components/PostMenuSheet";
 import {
   consumeForumDirty,
   forumSelect,
@@ -24,10 +25,11 @@ import {
   setLike,
   setSaved,
 } from "@/src/api/forum";
+import { confirmDeletePost, openEditPost } from "@/src/utils/postActions";
 import { ForumPost } from "@/src/types/ForumType";
 import { timeAgo } from "@/src/utils/date";
 
-type Tab = "hot" | "recent" | "saved";
+type Tab = "hot" | "recent" | "saved" | "own";
 
 const PAGE_SIZE = 5;
 
@@ -54,6 +56,7 @@ export default function ForumIndex() {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportingPostId, setReportingPostId] = useState<number | null>(null);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [menuPostId, setMenuPostId] = useState<number | null>(null);
 
   // ผู้ใช้หยุดพิมพ์ 350 ms ค่อยค้นหา
   useEffect(() => {
@@ -98,7 +101,7 @@ export default function ForumIndex() {
         searchIdsRef.current = null;
       }
 
-      if (tab === "saved" && !user) {
+      if ((tab === "saved" || tab === "own") && !user) {
         setPosts([]);
         setHasMore(false);
         return;
@@ -116,7 +119,11 @@ export default function ForumIndex() {
       }
       if (ids) q = q.in("recipe_forum_id", ids);
 
-      if (tab === "saved") {
+      if (tab === "own") {
+        q = q.eq("user_id", user?.id as string);
+        q = q.order("recipe_forum_id", { ascending: false });
+        if (!reset && last) q = q.lt("recipe_forum_id", last.recipe_forum_id);
+      } else if (tab === "saved") {
         q = q.not("recipe_forum_saved", "is", null);
         q = q.order("recipe_forum_id", { ascending: false });
         if (!reset && last) q = q.lt("recipe_forum_id", last.recipe_forum_id);
@@ -257,6 +264,26 @@ export default function ForumIndex() {
     }
   };
 
+  // เมนูสามจุดของโพสต์ตัวเอง: รอให้เมนูปิดก่อนค่อยเปิด Alert (iOS เปิดซ้อนกันทันทีไม่ได้)
+  const menuEdit = () => {
+    const id = menuPostId;
+    setMenuPostId(null);
+    if (id !== null) setTimeout(() => openEditPost(router, id), 250);
+  };
+
+  const menuDelete = () => {
+    const id = menuPostId;
+    setMenuPostId(null);
+    if (id === null) return;
+    setTimeout(
+      () =>
+        confirmDeletePost(id, () =>
+          setPosts((prev) => prev.filter((p) => p.recipe_forum_id !== id)),
+        ),
+      250,
+    );
+  };
+
   // เต็มจอเฉพาะโหลดครั้งแรก ครั้งต่อไป (ค้นหา/เปลี่ยนแท็บ) ช่องค้นหาต้องอยู่เหมือนเดิม
   if (!booted) {
     return (
@@ -270,7 +297,7 @@ export default function ForumIndex() {
     <View style={styles.container}>
       <View style={styles.headerContainer}>
         <View style={styles.tabRow}>
-          {(["hot", "recent", "saved"] as const).map((tabKey) => {
+          {(["hot", "recent", "saved", "own"] as const).map((tabKey) => {
             const isActive = tab === tabKey;
             return (
               <TouchableOpacity
@@ -338,7 +365,9 @@ export default function ForumIndex() {
                 ? `No recipes match "${activeQuery}".`
                 : tab === "saved"
                   ? "No saved posts yet."
-                  : "No recipes posted yet. Be the first!"}
+                  : tab === "own"
+                    ? "You haven't shared a recipe yet."
+                    : "No recipes posted yet. Be the first!"}
             </Text>
           )
         }
@@ -372,6 +401,7 @@ export default function ForumIndex() {
         renderItem={({ item }) => {
           const recipe = item.recipes!;
           const author = item.profiles;
+          const isMine = !!user && item.user_id === user.id;
           return (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -439,17 +469,37 @@ export default function ForumIndex() {
                       color={item.is_saved ? "#FF7A00" : "#666"}
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleOpenReport(item.recipe_forum_id)}
-                    style={styles.reportBtn}
-                  >
-                    <Ionicons name="flag-outline" size={20} color="#666" />
-                  </TouchableOpacity>
+                  {isMine ? (
+                    <TouchableOpacity
+                      onPress={() => setMenuPostId(item.recipe_forum_id)}
+                      style={styles.reportBtn}
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={20}
+                        color="#666"
+                      />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => handleOpenReport(item.recipe_forum_id)}
+                      style={styles.reportBtn}
+                    >
+                      <Ionicons name="flag-outline" size={20} color="#666" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </TouchableOpacity>
           );
         }}
+      />
+
+      <PostMenuSheet
+        visible={menuPostId !== null}
+        onEdit={menuEdit}
+        onDelete={menuDelete}
+        onClose={() => setMenuPostId(null)}
       />
 
       <ReportModal
@@ -473,29 +523,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingRight: 20,
+    paddingRight: 16,
     paddingTop: 20,
     paddingBottom: 12,
     backgroundColor: "#FFF",
   },
   tabRow: {
+    flex: 1,
     flexDirection: "row",
-    paddingHorizontal: 16,
-    justifyContent: "center",
+    paddingHorizontal: 12,
     alignItems: "center",
-    gap: 10,
+    gap: 6,
     backgroundColor: "#FFF",
   },
   tabBtn: {
     paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderRadius: 16,
     backgroundColor: "#F0F0F0",
   },
   tabBtnActive: { backgroundColor: "#FF7A00" },
   tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
   tabTextActive: { color: "#FFF" },
-  chatIconBtn: { position: "relative" },
+  chatIconBtn: { position: "relative", marginLeft: 8 },
   plusBadge: {
     position: "absolute",
     top: -2,

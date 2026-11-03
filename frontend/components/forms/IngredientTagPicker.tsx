@@ -19,9 +19,23 @@ type Props = {
   selected: number[];
   onChange: (tagIds: number[]) => void;
   disabled?: boolean;
+  excludeGroupIds?: number[]; // ไม่แสดงกลุ่มเหล่านี้ (เช่น Cuisine/Culture ในฟอร์มวัตถุดิบ)
+  onlyGroupIds?: number[]; // แสดงเฉพาะกลุ่มเหล่านี้ (เช่น Cuisine/Culture ในหน้าสร้างสูตร)
+  defaultExpanded?: boolean; // กางทุกกลุ่มตั้งแต่เริ่ม
+  hideSummary?: boolean; // ซ่อนแถบ "Selected" ด้านบน
+  singleSelect?: boolean; // เลือกได้ 1 อัน: กดอันใหม่จะแทนที่อันเดิม และกดอันที่เลือกอยู่ซ้ำไม่ยกเลิก (จึงไม่มีทางว่าง)
 };
 
-export default function IngredientTagPicker({ selected, onChange, disabled = false }: Props) {
+export default function IngredientTagPicker({
+  selected,
+  onChange,
+  disabled = false,
+  excludeGroupIds,
+  onlyGroupIds,
+  defaultExpanded = false,
+  hideSummary = false,
+  singleSelect = false,
+}: Props) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,14 +46,22 @@ export default function IngredientTagPicker({ selected, onChange, disabled = fal
     setLoading(true);
     setLoadError(false);
     try {
-      // ดึงกลุ่มทั้งหมดกับแท็กที่ใช้งานอยู่พร้อมกัน
+      // ดึงกลุ่มกับแท็กที่ใช้งานอยู่พร้อมกัน (กรองกลุ่มตาม onlyGroupIds / excludeGroupIds)
+      let tagQuery: any = supabase
+        .from("tags")
+        .select("tag_id, tag_name, group_id")
+        .eq("is_active", true)
+        .order("tag_name", { ascending: true });
+
+      if (onlyGroupIds && onlyGroupIds.length > 0) {
+        tagQuery = tagQuery.in("group_id", onlyGroupIds);
+      } else if (excludeGroupIds && excludeGroupIds.length > 0) {
+        tagQuery = tagQuery.not("group_id", "in", `(${excludeGroupIds.join(",")})`);
+      }
+
       const [groupRes, tagRes] = await Promise.all([
         supabase.from("tag_groups").select("group_id, group_name").order("group_id", { ascending: true }),
-        supabase
-          .from("tags")
-          .select("tag_id, tag_name, group_id")
-          .eq("is_active", true)
-          .order("tag_name", { ascending: true }),
+        tagQuery,
       ]);
 
       if (tagRes.error) throw tagRes.error;
@@ -61,8 +83,16 @@ export default function IngredientTagPicker({ selected, onChange, disabled = fal
         }
       });
 
-      setGroups(Array.from(groupMap.values()).sort((a, b) => a.group_id - b.group_id));
+      let groupList = Array.from(groupMap.values()).sort((a, b) => a.group_id - b.group_id);
+      if (onlyGroupIds && onlyGroupIds.length > 0) {
+        groupList = groupList.filter((g) => onlyGroupIds.includes(g.group_id));
+      } else if (excludeGroupIds && excludeGroupIds.length > 0) {
+        groupList = groupList.filter((g) => !excludeGroupIds.includes(g.group_id));
+      }
+
+      setGroups(groupList);
       setTags(tagList);
+      if (defaultExpanded) setExpanded(groupList.map((g) => g.group_id));
     } catch (error: any) {
       console.error("Error loading tags:", error?.message || error);
       setLoadError(true);
@@ -71,9 +101,11 @@ export default function IngredientTagPicker({ selected, onChange, disabled = fal
     }
   };
 
+  // โหลดใหม่เมื่อเงื่อนไขกลุ่มเปลี่ยน
+  const filterKey = `${(onlyGroupIds || []).join(",")}|${(excludeGroupIds || []).join(",")}`;
   useEffect(() => {
     loadTags();
-  }, []);
+  }, [filterKey]);
 
   const toggleGroup = (groupId: number) => {
     setExpanded((prev) => (prev.includes(groupId) ? prev.filter((g) => g !== groupId) : [...prev, groupId]));
@@ -81,6 +113,10 @@ export default function IngredientTagPicker({ selected, onChange, disabled = fal
 
   const toggleTag = (tagId: number) => {
     if (disabled) return;
+    if (singleSelect) {
+      if (!selected.includes(tagId)) onChange([tagId]);
+      return;
+    }
     onChange(selected.includes(tagId) ? selected.filter((id) => id !== tagId) : [...selected, tagId]);
   };
 
@@ -112,7 +148,7 @@ export default function IngredientTagPicker({ selected, onChange, disabled = fal
   return (
     <View>
       {/* สรุปแท็กที่เลือกไว้ (เห็นได้แม้กลุ่มพับอยู่) */}
-      {selectedTags.length > 0 && (
+      {selectedTags.length > 0 && !hideSummary && (
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>Selected ({selectedTags.length})</Text>
           <View style={styles.chipWrap}>

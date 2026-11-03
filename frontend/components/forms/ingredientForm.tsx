@@ -5,7 +5,7 @@
 //   mode="admin" : แอดมินกรอกชื่ออังกฤษ/ไทย -> status 'verified' (source 'admin')
 // ฟังก์ชันฝั่งฐานข้อมูลตัดสินสถานะจากบทบาทของผู้เรียกเอง ฟอร์มไม่ได้เป็นตัวกำหนด
 //
-// สารอาหาร: แสดง 13 ตัวหลักก่อน (CORE_NUTRIENT_NAMES) ที่เหลือกด "Add more nutrients" เลือกได้ทีละหลายตัว
+// สารอาหาร: ผู้ใช้เห็น 7 ตัวหลักก่อน / แอดมินเห็น 13 ตัว ที่เหลือกด "Add more nutrients" เลือกได้ทีละหลายตัว
 // แท็ก: แสดงเป็นกลุ่มที่กดเปิด/ปิดได้ (IngredientTagPicker)
 // ไม่ต้องกรอกครบ ต้องมีชื่อ และสารอาหารอย่างน้อย 1 ค่า ช่องที่เว้นว่างจะไม่ถูกบันทึก
 //
@@ -33,6 +33,9 @@ import {
   ORANGE_LIGHT,
   ORANGE_BORDER,
   CORE_NUTRIENT_NAMES,
+  USER_CORE_NUTRIENT_NAMES,
+  USER_REQUIRED_NUTRIENT_NAMES,
+  CUISINE_GROUP_ID,
   sanitizeNumber,
   getNutrientLabel,
 } from "./ingredientCommon";
@@ -63,6 +66,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   NUTRIENT_OUT_OF_RANGE: "Some nutrient values look unrealistic for 100 g. Please check them.",
   TAG_INVALID: "Some selected tags are not allowed.",
   NOT_AUTHENTICATED: "Please log in again.",
+  CALORIES_REQUIRED: "Please enter Calories.",
 };
 
 const getErrorMessage = (error: any): string => {
@@ -120,11 +124,13 @@ export default function IngredientForm({
 
   // สารอาหารหลัก เรียงตาม CORE_NUTRIENT_NAMES
   // (ถ้าชื่อในตารางไม่ตรงกับรายการหลักเลยสักตัว ให้แสดงทั้งหมดเป็นรายการหลัก ฟอร์มจะได้ยังใช้งานได้)
+  // ผู้ใช้เห็น 7 ตัวหลัก (USER_CORE_NUTRIENT_NAMES) แอดมินเห็น 13 ตัว (CORE_NUTRIENT_NAMES)
+  const coreNames = isAdmin ? CORE_NUTRIENT_NAMES : USER_CORE_NUTRIENT_NAMES;
   const coreList = useMemo(() => {
     const byName = new Map(nutrients.map((n) => [n.nutrient_name, n]));
-    const list = CORE_NUTRIENT_NAMES.map((name) => byName.get(name)).filter(Boolean) as Nutrient[];
+    const list = coreNames.map((name) => byName.get(name)).filter(Boolean) as Nutrient[];
     return list.length > 0 ? list : nutrients;
-  }, [nutrients]);
+  }, [nutrients, isAdmin]);
 
   // สารอาหารที่เหลือทั้งหมด (ยังไม่ใช่ตัวหลัก)
   const extraPool = useMemo(() => {
@@ -178,6 +184,16 @@ export default function IngredientForm({
     if (!en && !th) {
       Alert.alert("Warning", "Please enter an ingredient name");
       return;
+    }
+    // ตรวจช่องที่บังคับ (เฉพาะผู้ใช้ทั่วไป) ต้องมีค่า แต่ 0 ผ่าน
+    if (!isAdmin) {
+      for (const name of USER_REQUIRED_NUTRIENT_NAMES) {
+        const n = nutrients.find((x) => x.nutrient_name === name);
+        if (n && (values[n.nutrient_id] ?? "").trim() === "") {
+          Alert.alert("Warning", `Please enter ${getNutrientLabel(name)}`);
+          return;
+        }
+      }
     }
 
     // รวมเฉพาะสารอาหารที่แสดงบนฟอร์มและกรอกค่าไว้ (ช่องว่างข้าม)
@@ -237,6 +253,9 @@ export default function IngredientForm({
     <View key={n.nutrient_id} style={styles.nutrientRow}>
       <Text style={styles.nutrientName} numberOfLines={1}>
         {getNutrientLabel(n.nutrient_name)}
+        {!isAdmin && USER_REQUIRED_NUTRIENT_NAMES.includes(n.nutrient_name) && (
+          <Text style={{ color: "#FF3B30" }}> *</Text>
+        )}
       </Text>
       <TextInput
         style={styles.nutrientInput}
@@ -308,7 +327,7 @@ export default function IngredientForm({
 
       <Text style={[styles.label, { marginTop: 18 }]}>Nutrients per 100 g</Text>
       <Text style={styles.helper}>
-        Fill in what you know. You don't need to complete every field, but at least one value is required.
+        Fields marked * are required. Fill in the others if you know them.
       </Text>
 
       {loadingNutrients && (
@@ -419,7 +438,13 @@ export default function IngredientForm({
 
       <Text style={[styles.label, { marginTop: 18 }]}>Tags</Text>
       <Text style={styles.helper}>Tap a group to open it, then mark the tags that apply (optional).</Text>
-      <IngredientTagPicker selected={tagIds} onChange={setTagIds} disabled={saving} />
+      {/* กลุ่ม Cuisine/Culture เป็นแท็กของสูตร ไม่ใช่ของวัตถุดิบ จึงไม่แสดงที่นี่ (เลือกในหน้าสร้างสูตร) */}
+      <IngredientTagPicker
+        selected={tagIds}
+        onChange={setTagIds}
+        excludeGroupIds={[CUISINE_GROUP_ID]}
+        disabled={saving}
+      />
 
       <View style={styles.buttonRow}>
         {onCancel && (

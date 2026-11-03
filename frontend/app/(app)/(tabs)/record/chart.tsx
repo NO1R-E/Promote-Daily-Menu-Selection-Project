@@ -7,29 +7,11 @@ import { LineChart } from "react-native-chart-kit";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
-// ฟังก์ชันคำนวณหาแคลอรีรวมจากวัตถุดิบจริง และหารด้วยจำนวน serving ของสูตรอาหาร
-const calculateRecipeCalories = (recipeIngredients: any[], servingCount: number = 1) => {
-  let totalCal = 0;
-  recipeIngredients?.forEach((ri) => {
-    const weightG = ri.weight_g || 0;
-    const ingredientNutrients = ri.ingredients?.ingredient_nutrients || [];
-
-    ingredientNutrients.forEach((item: any) => {
-      const name = item.nutrients?.nutrient_name?.toLowerCase() || "";
-      const baseAmount = item.amount || 0;
-
-      // ถ้าชื่อเป็นแคลอรีหรือพลังงาน ให้คำนวณตามน้ำหนักวัตถุดิบ
-      if (name.includes("calorie") || name.includes("energy")) {
-        totalCal += (weightG / 100) * baseAmount;
-      }
-    });
-  });
-
-  // ป้องกันกรณี serving เป็น 0 หรือ null
-  const safeServings = servingCount > 0 ? servingCount : 1;
-
-  // หารด้วยจำนวน serving เพื่อคิดแคลอรีต่อ 1 Serving
-  return totalCal / safeServings;
+// อ่านแคลอรี่ต่อ 1 serving จากตาราง recipe_features (คำนวณไว้ในฐานข้อมูลแล้ว)
+const getCalories = (features: any): number => {
+  // recipe_id เป็น PK+FK จึงได้เป็น object เดียว แต่กันกรณีที่ได้ array ไว้ด้วย
+  const f = Array.isArray(features) ? features[0] : features;
+  return Number(f?.calories) || 0; // numeric จาก Postgres อาจมาเป็น string
 };
 
 // ===== [BMI] การ์ด BMI (คำนวณจากน้ำหนัก/ส่วนสูง ไม่มี column bmi) =====
@@ -164,83 +146,89 @@ const bmiStyles = StyleSheet.create({
   emptyText: { fontSize: 13, color: "#8E8E93", marginTop: 8 },
 });
 
-// ===== หน้าจอสถิติแคลอรี่ =====
+// ===== หน้าจอสถิติแคลอรี่ (รายเดือน) =====
+const MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+];
+
+// สร้างสตริงวันที่ "YYYY-MM-DD" ตามเวลาท้องถิ่น (ไม่ใช้ toISOString เพราะช่วงหลังเที่ยงคืนในเวลาไทยจะเพี้ยนไปเป็นวันก่อนหน้า)
+const toDateStr = (year: number, monthIndex: number, day: number) =>
+    `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
 export default function CalorieChartScreen() {
     const router = useRouter();
     const { user, personalData } = useAuth();
 
-    const [loading, setLoading] = useState(true);
-    const [weeklyCalories, setWeeklyCalories] = useState<number[]>([0, 0, 0, 0, 0, 0, 0]);
-    const [weeklyLabels, setWeeklyLabels] = useState<string[]>(["-", "-", "-", "-", "-", "-", "-"]);
-    const [avgCalories, setAvgCalories] = useState<number>(0);
+    const now = new Date();
 
-    const fetchWeeklyCalories = async () => {
+    // เดือนที่กำลังดูอยู่ (เก็บเป็นวันที่ 1 ของเดือน) เริ่มต้นที่เดือนปัจจุบัน
+    const [viewMonth, setViewMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+    const isCurrentMonth =
+        viewMonth.getFullYear() === now.getFullYear() && viewMonth.getMonth() === now.getMonth();
+
+    const [loading, setLoading] = useState(true);
+    const [dailyCalories, setDailyCalories] = useState<number[]>([]);
+    const [dayLabels, setDayLabels] = useState<string[]>([]);
+    const [avgCalories, setAvgCalories] = useState<number>(0);
+    const [loggedDays, setLoggedDays] = useState<number>(0);
+
+    const fetchMonthlyCalories = async () => {
         if (!user) return;
         try {
             setLoading(true);
-            const caloriesData: number[] = [];
-            const labelsData: string[] = [];
-            const today = new Date();
 
-            // วนลูปย้อนหลังจากวันนี้ถอยกลับไป 6 วัน (รวมเป็น 7 วัน)
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date(today);
-                d.setDate(today.getDate() - i);
-                const dateStr = d.toISOString().split("T")[0];
+            const year = viewMonth.getFullYear();
+            const month = viewMonth.getMonth();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-                // 🛠️ ดึง serving เพิ่มจากตาราง recipes
-                const { data } = await supabase
-                    .from("daily_record")
-                    .select(`
-                      record_item (
-                        recipe:recipes (
-                          serving,
-                          recipe_ingredients (
-                            weight_g,
-                            ingredients (
-                              ingredient_nutrients (
-                                amount,
-                                nutrients (
-                                  nutrient_name
-                                )
-                              )
-                            )
-                          )
-                        )
-                      )
-                    `)
-                    .eq("user_id", user.id)
-                    .eq("record_date", dateStr)
-                    .maybeSingle();
+            // เดือนปัจจุบันแสดงถึงวันนี้เท่านั้น (ไม่แสดงวันในอนาคต) เดือนที่ผ่านมาแล้วแสดงครบทุกวัน
+            const lastDay = isCurrentMonth ? now.getDate() : daysInMonth;
 
-                let dayCal = 0;
-                if (data && data.record_item) {
-                    dayCal = data.record_item.reduce((sum: number, item: any) => {
-                        // ดึง serving จาก item.recipe
-                        const servingCount = item.recipe?.serving || 1;
-                        const recipeCal = calculateRecipeCalories(
-                          item.recipe?.recipe_ingredients || [],
-                          servingCount
-                        );
-                        return sum + recipeCal;
-                    }, 0);
+            // ดึงทั้งเดือนในคำขอเดียว: record_item -> recipes -> recipe_features
+            const { data, error } = await supabase
+                .from("record_item")
+                .select(`
+                  record_date,
+                  recipe:recipes (
+                    recipe_features (
+                      calories
+                    )
+                  )
+                `)
+                .eq("user_id", user.id)
+                .gte("record_date", toDateStr(year, month, 1))
+                .lte("record_date", toDateStr(year, month, lastDay));
+
+            if (error) throw error;
+
+            // รวมแคลอรี่ของแต่ละวัน (index 0 = วันที่ 1)
+            const perDay: number[] = new Array(lastDay).fill(0);
+            (data || []).forEach((item: any) => {
+                const day = Number(String(item.record_date).slice(8, 10));
+                if (day >= 1 && day <= lastDay) {
+                    perDay[day - 1] += getCalories(item.recipe?.recipe_features);
                 }
+            });
 
-                caloriesData.push(Math.round(dayCal));
+            const rounded = perDay.map((v) => Math.round(v));
 
-                // ตัดข้อความเอาแค่วันที่สั้นๆ มาโชว์ที่แกน X (เช่น "10")
-                labelsData.push(dateStr.split("-")[2]);
-            }
+            // แกน X แสดงวันที่ 1, 5, 10, 15, ... เพื่อไม่ให้ตัวเลขแน่นเกินไป
+            const labels = rounded.map((_, i) => {
+                const day = i + 1;
+                return day === 1 || day % 5 === 0 ? String(day) : "";
+            });
 
-            setWeeklyCalories(caloriesData);
-            setWeeklyLabels(labelsData);
+            setDailyCalories(rounded);
+            setDayLabels(labels);
 
-            // หาค่าเฉลี่ยแคลอรีที่บริโภคต่อวัน
-            const total = caloriesData.reduce((sum, val) => sum + val, 0);
-            setAvgCalories(Math.round(total / 7));
+            // ค่าเฉลี่ยต่อวัน คิดเฉพาะวันที่มีการบันทึกอาหาร (ไม่ให้วันที่ไม่ได้บันทึกดึงค่าเฉลี่ยลง)
+            const logged = rounded.filter((v) => v > 0);
+            setLoggedDays(logged.length);
+            setAvgCalories(logged.length > 0 ? Math.round(logged.reduce((a, b) => a + b, 0) / logged.length) : 0);
 
         } catch (error) {
-            console.error("Error fetching weekly calories:", error);
+            console.error("Error fetching monthly calories:", error);
         } finally {
             setLoading(false);
         }
@@ -248,17 +236,18 @@ export default function CalorieChartScreen() {
 
     useFocusEffect(
         useCallback(() => {
-            fetchWeeklyCalories();
-        }, [user])
+            fetchMonthlyCalories();
+        }, [user, viewMonth])
     );
 
-    if (loading) {
-        return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#C96A0A" />
-            </View>
-        );
-    }
+    const goPrevMonth = () =>
+        setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1));
+    const goNextMonth = () => {
+        if (isCurrentMonth) return;
+        setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1));
+    };
+
+    const monthTitle = `${MONTH_NAMES[viewMonth.getMonth()]} ${viewMonth.getFullYear()}`;
 
     return (
         <View style={styles.mainContainer}>
@@ -273,41 +262,63 @@ export default function CalorieChartScreen() {
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-                {/* กล่องสรุปภาพรวมในสัปดาห์ */}
+                {/* กล่องสรุปภาพรวมของเดือนที่เลือก */}
                 <View style={styles.summaryCard}>
-                    <Text style={styles.summaryLabel}>Average per week</Text>
+                    <Text style={styles.summaryLabel}>Daily average · {monthTitle}</Text>
 
                     <View style={{ flexDirection: "row", alignItems: "baseline" }}>
                         <Text style={styles.summaryValue}>{avgCalories}</Text>
                         <Text style={[styles.summaryUnit, { marginLeft: 6 }]}>kcal/day</Text>
                     </View>
+                    <Text style={styles.summarySub}>from {loggedDays} logged {loggedDays === 1 ? "day" : "days"}</Text>
                 </View>
 
-                {/* บล็อกแสดงกราฟเส้นพาสเทลแบบโค้งมน */}
+                {/* บล็อกแสดงกราฟเส้นแคลอรี่รายวันของทั้งเดือน */}
                 <View style={styles.chartWrapper}>
-                    <Text style={styles.chartTitle}>Trend of Calorie Intake Over the Last 7 Days</Text>
-                    <LineChart
-                        data={{
-                            labels: weeklyLabels,
-                            datasets: [{ data: weeklyCalories }]
-                        }}
-                        width={Dimensions.get("window").width - 40}
-                        height={220}
-                        yAxisSuffix=" kcal"
-                        chartConfig={{
-                            backgroundColor: "#FFFFFF",
-                            backgroundGradientFrom: "#FFFFFF",
-                            backgroundGradientTo: "#FFFFFF",
-                            decimalPlaces: 0,
-                            color: (opacity = 1) => `rgba(242, 142, 43, ${opacity})`,
-                            labelColor: (opacity = 1) => `rgba(142, 142, 147, ${opacity})`,
-                            style: { borderRadius: 16 },
-                            propsForDots: { r: "5", strokeWidth: "2", stroke: "#C96A0A" },
-                            propsForBackgroundLines: { strokeDasharray: "5", stroke: "#E5E5EA" }
-                        }}
-                        bezier
-                        style={styles.lineChartStyle}
-                    />
+                    <View style={styles.monthRow}>
+                        <TouchableOpacity style={styles.monthBtn} onPress={goPrevMonth}>
+                            <Ionicons name="chevron-back" size={20} color="#F28E2B" />
+                        </TouchableOpacity>
+                        <Text style={styles.monthTitle}>{monthTitle}</Text>
+                        <TouchableOpacity
+                            style={[styles.monthBtn, isCurrentMonth && { opacity: 0.3 }]}
+                            onPress={goNextMonth}
+                            disabled={isCurrentMonth}
+                        >
+                            <Ionicons name="chevron-forward" size={20} color="#F28E2B" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.chartTitle}>Calorie Intake by Day</Text>
+
+                    {loading || dailyCalories.length === 0 ? (
+                        <View style={styles.chartLoading}>
+                            <ActivityIndicator size="large" color="#C96A0A" />
+                        </View>
+                    ) : (
+                        <LineChart
+                            data={{
+                                labels: dayLabels,
+                                datasets: [{ data: dailyCalories }]
+                            }}
+                            width={Dimensions.get("window").width - 40}
+                            height={220}
+                            yAxisSuffix=" kcal"
+                            chartConfig={{
+                                backgroundColor: "#FFFFFF",
+                                backgroundGradientFrom: "#FFFFFF",
+                                backgroundGradientTo: "#FFFFFF",
+                                decimalPlaces: 0,
+                                color: (opacity = 1) => `rgba(242, 142, 43, ${opacity})`,
+                                labelColor: (opacity = 1) => `rgba(142, 142, 147, ${opacity})`,
+                                style: { borderRadius: 16 },
+                                propsForDots: { r: "3", strokeWidth: "2", stroke: "#C96A0A" },
+                                propsForBackgroundLines: { strokeDasharray: "5", stroke: "#E5E5EA" }
+                            }}
+                            bezier
+                            style={styles.lineChartStyle}
+                        />
+                    )}
                 </View>
 
                 {/* [BMI] การ์ด BMI: ชื่อ column weight/height ต้องตรงกับตาราง personalData ของคุณ */}
@@ -334,5 +345,11 @@ const styles = StyleSheet.create({
 
     chartWrapper: { backgroundColor: "#FFFFFF", borderRadius: 24, padding: 15, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
     chartTitle: { fontSize: 14, fontWeight: "600", color: "#666", alignSelf: "flex-start", marginBottom: 15, paddingLeft: 5 },
-    lineChartStyle: { marginVertical: 5, borderRadius: 16 }
+    lineChartStyle: { marginVertical: 5, borderRadius: 16 },
+
+    summarySub: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 },
+    monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 10 },
+    monthBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#FFEBD6", justifyContent: "center", alignItems: "center" },
+    monthTitle: { fontSize: 16, fontWeight: "700", color: "#C96A0A" },
+    chartLoading: { height: 220, justifyContent: "center", alignItems: "center" }
 });

@@ -62,3 +62,24 @@ export const CORE_NUTRIENT_NAMES = [
   "calcium",
   "iron",
 ];
+
+// สารอาหารที่ฟอร์มฝั่ง "ผู้ใช้" แสดงก่อน (7 ตัวที่จำเป็นที่สุด) เรียงตามที่แสดงบนฟอร์ม
+// ที่เหลือ (ไขมันอิ่มตัว คอเลสเตอรอล วิตามิน แร่ธาตุ ฯลฯ) กด "Add more nutrients" เลือกเพิ่มได้
+// ฝั่งแอดมินใช้ CORE_NUTRIENT_NAMES (13 ตัว) ด้านบน
+export const USER_CORE_NUTRIENT_NAMES = [
+  "energy", // Calories
+  "protein",
+  "tot_fat", // TotalFat
+  "carbohydrate", // Carb
+  "fiber",
+  "sugar",
+  "sodium",
+];
+
+// สารอาหารที่ผู้ใช้ต้องกรอก (ห้ามว่าง แต่ใส่ 0 ได้) ต้องอยู่ใน USER_CORE_NUTRIENT_NAMES เสมอ
+// เพื่อให้เห็นบนฟอร์มตลอด ไม่ไปซ่อนอยู่ใต้ปุ่ม "Add more nutrients"
+export const USER_REQUIRED_NUTRIENT_NAMES = ["energy"]; // Calories
+
+// group_id ของแท็กกลุ่ม Cuisine/Culture (แท็กของ "สูตร" ไม่ใช่ของวัตถุดิบ)
+// เลือกตอนสร้างสูตรในหน้า create-post และไม่แสดงในฟอร์มเพิ่มวัตถุดิบ
+export const CUISINE_GROUP_ID = 8;

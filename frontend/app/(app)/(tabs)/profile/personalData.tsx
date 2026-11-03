@@ -63,19 +63,14 @@ export default function DisplayPersonalDataScreen() {
   const [intensityExercise, setIntensityExercise] = useState("");
   const [goal, setGoal] = useState("");
 
-  // State สำหรับ Food Allergies
-  const [allergyQuery, setAllergyQuery] = useState("");
-  const [allergyLoading, setAllergyLoading] = useState(false);
-  const [allergyResults, setAllergyResults] = useState<{ tag_id: any; tag_name: string }[]>([]);
-  const [selectedAllergies, setSelectedAllergies] = useState<{ tag_id: any; tag_name: string }[]>([]);
-  const [isAllergyFocused, setIsAllergyFocused] = useState(false);
+  // ตัวเลือกแท็กทั้งหมดของแต่ละกลุ่ม (โหลดครั้งเดียว ใช้แสดงเป็น chip ให้กดเลือกตอนแก้ไข)
+  const [allergyOptions, setAllergyOptions] = useState<{ tag_id: any; tag_name: string }[]>([]);
+  const [dietOptions, setDietOptions] = useState<{ tag_id: any; tag_name: string }[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(true);
 
-  // State สำหรับ Dietary Preferences (Halal / Vegan / Non-Jae) - อ้างอิงจาก allergies.tsx
-  const [dietQuery, setDietQuery] = useState("");
-  const [dietLoading, setDietLoading] = useState(false);
-  const [dietResults, setDietResults] = useState<{ tag_id: any; tag_name: string }[]>([]);
+  // แท็กที่ผู้ใช้เลือกอยู่ (Food Allergies / Dietary Preferences)
+  const [selectedAllergies, setSelectedAllergies] = useState<{ tag_id: any; tag_name: string }[]>([]);
   const [selectedDiets, setSelectedDiets] = useState<{ tag_id: any; tag_name: string }[]>([]);
-  const [isDietFocused, setIsDietFocused] = useState(false);
 
   // 👈 3. ฟังก์ชันกำหนดค่า Personal Data จาก Context
   const syncPersonalDataFromContext = () => {
@@ -110,7 +105,9 @@ export default function DisplayPersonalDataScreen() {
         const tagObj = { tag_id: item.tags.tag_id, tag_name: item.tags.tag_name };
         // [TAG GROUP] แยกประเภทด้วย group_id
         if (item.tags.group_id === DIET_GROUP_ID) {
-          diets.push(tagObj);
+          if (!item.tags.tag_name.startsWith("Non-")) { // ตัด Non- ออก
+            diets.push(tagObj);
+          }
         } else if (item.tags.group_id === ALLERGEN_GROUP_ID) {
           allergies.push(tagObj);
         }
@@ -130,94 +127,91 @@ export default function DisplayPersonalDataScreen() {
     fetchAllergies();
   }, [personalData, user]);
 
-  // ค้นหา Tag อาหารที่แพ้ - แตะช่องปุ๊บโชว์ตัวเลือกเลยแม้ยังไม่พิมพ์อะไร (ไม่รวม tag ฝั่ง dietary)
+  // โหลดตัวเลือกแท็กทั้งหมด (Allergen + Diet) ครั้งเดียว ไว้แสดงเป็น chip ให้เลือกตอนแก้ไข
   useEffect(() => {
-    const fetchAllergyTags = async () => {
-      if (!isAllergyFocused) return;
-
-      setAllergyLoading(true);
+    const fetchTagOptions = async () => {
+      setTagsLoading(true);
       try {
-        let query = supabase
+        const { data, error } = await supabase
           .from("tags")
-          .select("tag_id, tag_name")
-          .eq("group_id", ALLERGEN_GROUP_ID); // [TAG GROUP] เดิมใช้ tag_category = "FILTER"
+          .select("tag_id, tag_name, group_id")
+          .in("group_id", [ALLERGEN_GROUP_ID, DIET_GROUP_ID]) // [TAG GROUP]
+          .order("tag_name", { ascending: true });
 
-        if (allergyQuery.trim()) {
-          query = query.ilike("tag_name", `%${allergyQuery}%`);
-        }
-
-        const { data, error } = await query.limit(10);
         if (error) throw error;
-        setAllergyResults(data || []);
+
+        const rows: any[] = data || [];
+        setAllergyOptions(
+          rows
+            .filter((t) => t.group_id === ALLERGEN_GROUP_ID)
+            .map((t) => ({ tag_id: t.tag_id, tag_name: t.tag_name }))
+        );
+        setDietOptions(
+          rows
+            .filter((t) => t.group_id === DIET_GROUP_ID && !/^non-/i.test(t.tag_name)) // ตัด Non- ออก
+            .map((t) => ({ tag_id: t.tag_id, tag_name: t.tag_name }))
+        );
       } catch (err) {
-        console.error("Error fetching allergy tags:", err);
+        console.error("Error fetching tag options:", err);
       } finally {
-        setAllergyLoading(false);
+        setTagsLoading(false);
       }
     };
 
-    const timer = setTimeout(fetchAllergyTags, 200);
-    return () => clearTimeout(timer);
-  }, [allergyQuery, isAllergyFocused]);
+    fetchTagOptions();
+  }, []);
 
-  // ค้นหา Tag ฝั่ง Dietary Preferences (Halal / Vegan / Non-Jae) - แตะช่องปุ๊บโชว์ตัวเลือกเลย
-  useEffect(() => {
-    const fetchDietTags = async () => {
-      if (!isDietFocused) return;
-
-      setDietLoading(true);
-      try {
-        let query = supabase
-          .from("tags")
-          .select("tag_id, tag_name")
-          .eq("group_id", DIET_GROUP_ID); // [TAG GROUP]
-
-        if (dietQuery.trim()) {
-          query = query.ilike("tag_name", `%${dietQuery}%`);
-        }
-
-        const { data, error } = await query.limit(10);
-        if (error) throw error;
-        setDietResults(data || []);
-      } catch (err) {
-        console.error("Error fetching dietary tags:", err);
-      } finally {
-        setDietLoading(false);
-      }
-    };
-
-    const timer = setTimeout(fetchDietTags, 200);
-    return () => clearTimeout(timer);
-  }, [dietQuery, isDietFocused]);
-
-  const handleSelectAllergy = (tag: { tag_id: any; tag_name: string }) => {
-    if (!selectedAllergies.some((t) => t.tag_id === tag.tag_id)) {
-      setSelectedAllergies([...selectedAllergies, tag]);
-    }
-    setAllergyQuery("");
-    setIsAllergyFocused(false);
+  // กด chip เพื่อเลือก/ยกเลิก
+  const toggleAllergy = (tag: { tag_id: any; tag_name: string }) => {
+    setSelectedAllergies((prev) =>
+      prev.some((t) => t.tag_id === tag.tag_id) ? prev.filter((t) => t.tag_id !== tag.tag_id) : [...prev, tag]
+    );
   };
 
-  const handleRemoveAllergy = (tagId: any) => {
-    setSelectedAllergies(selectedAllergies.filter((t) => t.tag_id !== tagId));
+  const toggleDiet = (tag: { tag_id: any; tag_name: string }) => {
+    setSelectedDiets((prev) =>
+      prev.some((t) => t.tag_id === tag.tag_id) ? prev.filter((t) => t.tag_id !== tag.tag_id) : [...prev, tag]
+    );
   };
 
-  const handleSelectDiet = (tag: { tag_id: any; tag_name: string }) => {
-    if (!selectedDiets.some((t) => t.tag_id === tag.tag_id)) {
-      setSelectedDiets([...selectedDiets, tag]);
-    }
-    setDietQuery("");
-    setIsDietFocused(false);
-  };
-
-  const handleRemoveDiet = (tagId: any) => {
-    setSelectedDiets(selectedDiets.filter((t) => t.tag_id !== tagId));
-  };
-
-  const closeDropdowns = () => {
-    setIsAllergyFocused(false);
-    setIsDietFocused(false);
+  const dismissKeyboard = () => {
     Keyboard.dismiss();
+  };
+
+  // แสดง chip ของแท็ก: โหมดแก้ไข = แสดงตัวเลือกทั้งหมดให้กดเลือก/ยกเลิก, โหมดดู = แสดงเฉพาะที่เลือกไว้
+  const renderTagChips = (
+    options: { tag_id: any; tag_name: string }[],
+    selected: { tag_id: any; tag_name: string }[],
+    onToggle: (tag: { tag_id: any; tag_name: string }) => void
+  ) => {
+    if (isEditing) {
+      if (tagsLoading) return <ActivityIndicator size="small" color="#FF7A00" />;
+      if (options.length === 0) return <Text style={styles.noneText}>No options available</Text>;
+
+      return options.map((tag) => {
+        const isSelected = selected.some((t) => t.tag_id === tag.tag_id);
+        return (
+          <TouchableOpacity
+            key={String(tag.tag_id)}
+            activeOpacity={0.8}
+            disabled={saving}
+            onPress={() => onToggle(tag)}
+            style={[styles.chip, styles.chipOption, isSelected && styles.chipSelected]}
+          >
+            {isSelected && <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />}
+            <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{tag.tag_name}</Text>
+          </TouchableOpacity>
+        );
+      });
+    }
+
+    if (selected.length === 0) return <Text style={styles.noneText}>None</Text>;
+
+    return selected.map((tag) => (
+      <View key={String(tag.tag_id)} style={styles.chip}>
+        <Text style={styles.chipText}>{tag.tag_name}</Text>
+      </View>
+    ));
   };
 
   // บันทึกข้อมูลทั้งหมด
@@ -291,7 +285,7 @@ export default function DisplayPersonalDataScreen() {
   }
 
   return (
-    <TouchableWithoutFeedback onPress={closeDropdowns}>
+    <TouchableWithoutFeedback onPress={dismissKeyboard}>
       <View style={styles.mainContainer}>
         {/* Header */}
         <View style={styles.headerRow}>
@@ -419,116 +413,18 @@ export default function DisplayPersonalDataScreen() {
 
 
           {/* 🥑 Food Allergies Section */}
-          <View style={[styles.inputGroup, { zIndex: 20 }]}>
+          <View style={styles.inputGroup}>
             <Text style={styles.label}>Food Allergies</Text>
-  
-            {isEditing && (
-              <View style={styles.searchContainer}>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search allergies (e.g., milk, egg, fish...)"
-                  value={allergyQuery}
-                  onChangeText={setAllergyQuery}
-                  onFocus={() => {
-                    setIsDietFocused(false);
-                    setIsAllergyFocused(true);
-                  }}
-                  autoCapitalize="none"
-                />
-                {allergyLoading && <ActivityIndicator style={styles.searchLoader} size="small" color="#FF7A00" />}
-  
-                {/* Dropdown Search Results */}
-                {isAllergyFocused && allergyResults.length > 0 && (
-                  <View style={styles.searchResultsList}>
-                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {allergyResults.map((item) => (
-                        <TouchableOpacity
-                          key={String(item.tag_id)}
-                          style={styles.searchResultItem}
-                          onPress={() => handleSelectAllergy(item)}
-                        >
-                          <Text style={styles.searchResultText}>{item.tag_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            )}
-  
-            {/* Chips Display Section */}
             <View style={styles.chipsContainer}>
-              {selectedAllergies.length > 0 ? (
-                selectedAllergies.map((tag) => (
-                  <View key={String(tag.tag_id)} style={styles.chip}>
-                    <Text style={styles.chipText}>{tag.tag_name}</Text>
-                    {isEditing && (
-                      <TouchableOpacity onPress={() => handleRemoveAllergy(tag.tag_id)}>
-                        <Ionicons name="close-circle" size={16} color="#FF3B30" style={{ marginLeft: 4 }} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.noneText}>None</Text>
-              )}
+              {renderTagChips(allergyOptions, selectedAllergies, toggleAllergy)}
             </View>
           </View>
-  
-          {/* 🥦 Dietary Preferences Section (Halal / Vegan / Non-Jae) - อ้างอิงจาก allergies.tsx */}
-          <View style={[styles.inputGroup, { zIndex: 10 }]}>
+
+          {/* 🥦 Dietary Preferences Section */}
+          <View style={styles.inputGroup}>
             <Text style={styles.label}>Dietary Preferences</Text>
-  
-            {isEditing && (
-              <View style={styles.searchContainer}>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search (e.g., Halal, Vegan, Non-Jae...)"
-                  value={dietQuery}
-                  onChangeText={setDietQuery}
-                  onFocus={() => {
-                    setIsAllergyFocused(false);
-                    setIsDietFocused(true);
-                  }}
-                  autoCapitalize="none"
-                />
-                {dietLoading && <ActivityIndicator style={styles.searchLoader} size="small" color="#FF7A00" />}
-  
-                {/* Dropdown Search Results */}
-                {isDietFocused && dietResults.length > 0 && (
-                  <View style={styles.searchResultsList}>
-                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {dietResults.map((item) => (
-                        <TouchableOpacity
-                          key={String(item.tag_id)}
-                          style={styles.searchResultItem}
-                          onPress={() => handleSelectDiet(item)}
-                        >
-                          <Text style={styles.searchResultText}>{item.tag_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            )}
-  
-            {/* Chips Display Section */}
             <View style={styles.chipsContainer}>
-              {selectedDiets.length > 0 ? (
-                selectedDiets.map((tag) => (
-                  <View key={String(tag.tag_id)} style={styles.chip}>
-                    <Text style={styles.chipText}>{tag.tag_name}</Text>
-                    {isEditing && (
-                      <TouchableOpacity onPress={() => handleRemoveDiet(tag.tag_id)}>
-                        <Ionicons name="close-circle" size={16} color="#FF3B30" style={{ marginLeft: 4 }} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.noneText}>None</Text>
-              )}
+              {renderTagChips(dietOptions, selectedDiets, toggleDiet)}
             </View>
           </View>
 
@@ -625,54 +521,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#333",
   },
-  searchContainer: {
-    position: "relative",
-    marginBottom: 8,
-    zIndex: 10,
-  },
-  searchInput: {
-    width: "100%",
-    height: 48,
-    borderWidth: 1,
-    borderColor: "#FF7A00",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    fontSize: 15,
-    color: "#000",
-  },
-  searchLoader: {
-    position: "absolute",
-    right: 12,
-    top: 14,
-  },
-  searchResultsList: {
-    position: "absolute",
-    top: 52,
-    left: 0,
-    right: 0,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#EBEBEB",
-    borderRadius: 8,
-    maxHeight: 160,
-    overflow: "hidden",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    zIndex: 100,
-  },
-  searchResultItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F5F5F7",
-  },
-  searchResultText: {
-    fontSize: 15,
-    color: "#333",
-  },
   chipsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -693,6 +541,18 @@ const styles = StyleSheet.create({
     color: "#FF7A00",
     fontSize: 14,
     fontWeight: "600",
+  },
+  // chip ตัวเลือกที่กดได้ (โหมดแก้ไข): ยังไม่เลือก = พื้นขาวขอบส้ม, เลือกแล้ว = พื้นส้มทึบ
+  chipOption: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFB366",
+  },
+  chipSelected: {
+    backgroundColor: "#FF7A00",
+    borderColor: "#FF7A00",
+  },
+  chipTextSelected: {
+    color: "#FFFFFF",
   },
   noneText: {
     fontSize: 15,

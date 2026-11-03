@@ -141,7 +141,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
           .from("ingredients")
           .select("ingredient_id, norm_en, norm_th")
           .eq("status", "verified") // ไม่ให้วัตถุดิบที่ยังไม่ยืนยันของผู้ใช้คนอื่นโผล่ในแท็บนี้
-          .order("norm_en", { ascending: true })
+          .order("ingredient_id", { ascending: true })
           .limit(30);
 
         // ตัดอักขระที่ทำให้ตัวกรอง or() พัง (, ( ) % _ \) ออกจากคำค้นก่อน

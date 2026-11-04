@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { MEAL_TYPES, MEAL_LABEL, type MealType } from "@/src/api/record";
 
 // recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
 // (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
@@ -24,7 +25,11 @@ const PAGE_SIZE = 20;
 export default function FoodSearchScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { meal_type, selected_date } = useLocalSearchParams<{ meal_type: string; selected_date: string }>();
+  const { meal_type, selected_date } = useLocalSearchParams<{ meal_type?: string; selected_date?: string }>();
+  const initialMealType: MealType = MEAL_TYPES.includes((meal_type || "").toLowerCase() as MealType)
+    ? (meal_type || "").toLowerCase() as MealType
+    : "breakfast";
+  const [selectedMealType, setSelectedMealType] = useState<MealType>(initialMealType);
 
   // state หลักของหน้านี้ - รายการเมนู, คำค้นหา, และ state ของ pagination
   const [recipes, setRecipes] = useState<any[]>([]);
@@ -129,13 +134,13 @@ export default function FoodSearchScreen() {
       .insert({
         user_id: user.id,            // ID ผู้ใช้งาน
         record_date: targetDate,     // วันที่บันทึก
-        meal_type: meal_type,        // ชื่อมื้อ (เช่น "มื้อที่ 1", "Snack")
+        meal_type: selectedMealType, // breakfast | lunch | dinner | snack
         recipe_id: recipeId          // ID เมนูอาหาร
       });
 
     if (insertItemError) throw insertItemError;
 
-    Alert.alert("สำเร็จ", `บันทึก ${recipeName} ลงใน ${meal_type} เรียบร้อยแล้ว!`);
+    Alert.alert("สำเร็จ", `บันทึก ${recipeName} ลงใน ${MEAL_LABEL[selectedMealType]} เรียบร้อยแล้ว!`);
     router.back();
 
   } catch (error: any) {
@@ -153,7 +158,25 @@ export default function FoodSearchScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Select a menu at {meal_type}</Text>
+        <Text style={styles.headerTitle}>Select a menu</Text>
+      </View>
+
+      {/* เลือกประเภทมื้ออาหาร: เลือกซ้ำได้เพื่อเพิ่มหลายเมนูในมื้อเดียวกัน */}
+      <Text style={styles.mealTypeHeading}>Meal type</Text>
+      <View style={styles.mealTypeContainer}>
+        {MEAL_TYPES.map((type) => (
+          <TouchableOpacity
+            key={type}
+            style={[styles.mealTypeButton, selectedMealType === type && styles.mealTypeButtonSelected]}
+            onPress={() => setSelectedMealType(type)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: selectedMealType === type }}
+          >
+            <Text style={[styles.mealTypeText, selectedMealType === type && styles.mealTypeTextSelected]}>
+              {MEAL_LABEL[type]}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* กล่องค้นหาเมนู */}
@@ -227,6 +250,13 @@ const styles = StyleSheet.create({
   backBtn: { marginRight: 12, padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: "bold", color: "#1A1A1A" },
   
+  mealTypeHeading: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 8 },
+  mealTypeContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 15 },
+  mealTypeButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: "#E0E0E0", backgroundColor: "#F8F9FA" },
+  mealTypeButtonSelected: { backgroundColor: "#F28E2B", borderColor: "#F28E2B" },
+  mealTypeText: { fontSize: 13, fontWeight: "600", color: "#555" },
+  mealTypeTextSelected: { color: "#FFFFFF" },
+
   // Style กล่องค้นหา
   searchContainer: {
     flexDirection: "row",

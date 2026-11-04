@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,10 +8,7 @@ import { useFocusEffect } from "expo-router";
 import { Calendar } from "react-native-calendars";
 import Svg, { Circle } from "react-native-svg";
 import { DEFAULT_TARGETS, type Targets } from "@/src/utils/nutritionTargets";
-
-// เริ่มต้นที่ 3 มื้อ กดเพิ่มได้อีกสูงสุด 3 มื้อ (รวมแล้วไม่เกิน 6)
-const DEFAULT_MEAL_SLOTS = 3;
-const MAX_MEAL_SLOTS = 6;
+import { MEAL_TYPES, MEAL_LABEL } from "@/src/api/record";
 
 // [ORANGE] พาเลตสีส้มของแอป (ใช้เฉพาะจุดเด่น ไม่ใช่ทั้งหน้า)
 const ORANGE = "#F28E2B"; // สีหลัก (ปุ่ม/ไอคอน/progress)
@@ -67,9 +64,6 @@ export default function TrackingRecordScreen() {
     new Date().toISOString().split("T")[0]
   );
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
-
-  // จำนวนมื้อที่แสดงอยู่ตอนนี้ เริ่มที่ 3 แล้วให้กด + เพิ่มเองได้
-  const [mealSlots, setMealSlots] = useState(DEFAULT_MEAL_SLOTS);
 
   // ฟังก์ชันเปลี่ยนวัน
   const changeDate = (daysToShift: number) => {
@@ -179,63 +173,8 @@ export default function TrackingRecordScreen() {
     }, [user, personalData])
   );
 
-  // ถ้าเคยบันทึกมื้อที่ 4, 5, 6 ไว้ก่อนหน้านี้ ให้ขยายช่องให้ครบ จะได้ไม่หายไปจากหน้าจอ
-  useEffect(() => {
-    const highestRecordedMeal = items.reduce((max, item) => {
-      const match = /Meal (\d+)/.exec(item.meal_type || "");
-      const mealNumber = match ? parseInt(match[1], 10) : 0;
-      return mealNumber > max ? mealNumber : max;
-    }, 0);
-
-    if (highestRecordedMeal > mealSlots) {
-      setMealSlots(Math.min(highestRecordedMeal, MAX_MEAL_SLOTS));
-    }
-  }, [items]);
-
-  // ลบมื้อที่กด "Add meal" เพิ่มมา - ลบได้แค่มื้อล่าสุด (undo การเพิ่ม) และห้ามลบต่ำกว่า 3 มื้อ default
-  // ถ้ามื้อนั้นมีอาหารบันทึกไว้แล้ว ต้องถามยืนยันก่อน เพราะจะลบ record_item ทิ้งไปด้วย
-  const handleRemoveMeal = (mealName: string) => {
-    const mealItem = items.find(
-      (i) => i.meal_type?.toLowerCase() === mealName.toLowerCase()
-    );
-
-    const removeSlot = () => setMealSlots((prev) => Math.max(DEFAULT_MEAL_SLOTS, prev - 1));
-
-    if (!mealItem) {
-      removeSlot();
-      return;
-    }
-
-    Alert.alert(
-      "Remove meal",
-      `${mealName} already has food logged. Removing this slot will also delete that logged food. Continue?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { error } = await supabase
-                .from("record_item")
-                .delete()
-                .eq("record_item_id", mealItem.record_item_id);
-              if (error) throw error;
-
-              setItems((prev) => prev.filter((i) => i.record_item_id !== mealItem.record_item_id));
-              removeSlot();
-            } catch (err) {
-              console.error("Error removing meal:", err);
-              Alert.alert("Error", "Could not remove this meal. Please try again.");
-            }
-          },
-        },
-      ]
-    );
-  };
-
   // ลบแค่อาหารที่เลือกไว้ในมื้อนั้น (เอาออกจาก record_item ใน Supabase) แต่ไม่ลบช่องมื้อทิ้ง
-  // ใช้ได้กับทุกมื้อที่มีอาหารอยู่แล้ว ต่างจาก handleRemoveMeal ที่ลบทั้งช่อง
+  // ลบเฉพาะเมนูที่เลือก ไม่ลบทั้งกลุ่มมื้ออาหาร
   const handleDeleteFood = (mealItem: any, mealName: string) => {
     Alert.alert(
       "Remove food",
@@ -333,82 +272,54 @@ export default function TrackingRecordScreen() {
           <View style={styles.onTimeCard}>
             <Text style={styles.cardTitle}>Meals On Time</Text>
 
-            {/* แสดงรายการมื้อตามจำนวน mealSlots ปัจจุบัน เริ่มที่ 3 แล้วกด + เพิ่มเองได้ */}
-            {Array.from({ length: mealSlots }, (_, i) => `Meal ${i + 1}`).map((mealName, index) => {
-              // หาอาหารรายการแรกของมื้อนี้ (ถ้ามี)
-              const mealItem = items.find(
-                (i) => i.meal_type?.toLowerCase() === mealName.toLowerCase()
+            {/* แสดง 4 กลุ่มมื้ออาหาร แต่ละกลุ่มเพิ่มได้หลายเมนู */}
+            {MEAL_TYPES.map((mealType) => {
+              const mealItems = items.filter(
+                (item) => item.meal_type?.toLowerCase() === mealType
               );
-
-              // ลบได้แค่มื้อล่าสุดที่เพิ่มมา (เกินจาก 3 มื้อ default) เท่านั้น กันปัญหาเลขมื้อสลับกัน
-              const canRemove = mealSlots > DEFAULT_MEAL_SLOTS && index === mealSlots - 1;
+              const mealLabel = MEAL_LABEL[mealType];
 
               return (
-                <TouchableOpacity
-                  key={mealName}
-                  style={styles.mealRow}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(app)/(tabs)/record/searchOnTime",
-                      params: {
-                        meal_type: mealName,
-                        selected_date: selectedDate,
-                      },
-                    })
-                  }
-                >
-                  <Image
-                    source={{
-                      uri:
-                        getFirstImage(mealItem?.recipe?.img) ||
-                        "https://via.placeholder.com/40",
-                    }}
-                    style={styles.mealThumb}
-                  />
-                  <View style={styles.mealInfo}>
-                    <Text style={styles.mealName}>
-                      {mealItem?.recipe?.recipe_name || mealName}
-                    </Text>
-                  </View>
-                  {mealItem ? (
-                    <View style={styles.mealDoneActions}>
-                      <View style={styles.checkedCircle}>
-                        <Ionicons name="checkmark" size={14} color="#34C759" />
+                <View key={mealType} style={styles.mealGroup}>
+                  <Text style={styles.mealGroupTitle}>{mealLabel}</Text>
+                  {mealItems.map((mealItem) => (
+                    <View key={mealItem.record_item_id} style={styles.mealRow}>
+                      <Image
+                        source={{ uri: getFirstImage(mealItem.recipe?.img) || "https://via.placeholder.com/40" }}
+                        style={styles.mealThumb}
+                      />
+                      <View style={styles.mealInfo}>
+                        <Text style={styles.mealName}>{mealItem.recipe?.recipe_name || "Food"}</Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => handleDeleteFood(mealItem, mealName)}
-                        style={styles.deleteFoodBtn}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
-                      </TouchableOpacity>
+                      <View style={styles.mealDoneActions}>
+                        <View style={styles.checkedCircle}>
+                          <Ionicons name="checkmark" size={14} color="#34C759" />
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteFood(mealItem, mealLabel)}
+                          style={styles.deleteFoodBtn}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  ) : (
-                    <Ionicons name="add" size={18} color={ORANGE} />
-                  )}
-                  {canRemove && (
-                    <TouchableOpacity
-                      onPress={() => handleRemoveMeal(mealName)}
-                      style={styles.removeMealBtn}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-                    </TouchableOpacity>
-                  )}
-                </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={styles.addMealRow}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(app)/(tabs)/record/searchOnTime",
+                        params: { meal_type: mealType, selected_date: selectedDate },
+                      })
+                    }
+                  >
+                    <Ionicons name="add-circle-outline" size={18} color={ORANGE} />
+                    <Text style={styles.addMealText}>Add food to {mealLabel}</Text>
+                  </TouchableOpacity>
+                </View>
               );
             })}
-
-            {/* ปุ่มเพิ่มมื้อ - กดได้จนกว่าจะครบ 6 มื้อ */}
-            {mealSlots < MAX_MEAL_SLOTS && (
-              <TouchableOpacity
-                style={styles.addMealRow}
-                onPress={() => setMealSlots((prev) => prev + 1)}
-              >
-                <Ionicons name="add-circle-outline" size={18} color={ORANGE} />
-                <Text style={styles.addMealText}>Add meal</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
           {/* Calories */}
@@ -562,7 +473,9 @@ const styles = StyleSheet.create({
   circleUnit: { fontSize: 12, color: "#888" },
   calorieRemainingText: { fontSize: 12, color: "#666", marginTop: 10 },
 
-  // Meal Rows inside On Time Card
+  // Meal groups and rows inside On Time Card
+  mealGroup: { marginBottom: 12 },
+  mealGroupTitle: { fontSize: 13, fontWeight: "700", color: ORANGE_DARK, marginBottom: 7, marginTop: 2 },
   mealRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 8, borderRadius: 26, marginBottom: 8 },
   mealThumb: { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
   mealInfo: { flex: 1 },

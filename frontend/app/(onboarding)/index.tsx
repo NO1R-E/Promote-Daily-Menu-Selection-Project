@@ -6,10 +6,12 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import PersonalDataForm from "@/components/forms/PersonalDataForm";
 import AllergiesForm from "@/components/forms/AllergiesForm";
 import GoalForm from "@/components/forms/GoalForm";
-import PreferenceForm from "@/components/forms/PreferenceForm";
+import PreferenceFlavorForm from "@/components/forms/PreferenceFlavorForm";
+import PreferenceTextureForm from "@/components/forms/PreferenceTextureForm";
 import { OnboardingFormData } from "@/src/types/OnboardingType";
 
-const TOTAL_STEPS = 4;
+
+const TOTAL_STEPS = 5;
 
 const BLANK_FORM: OnboardingFormData = {
   gender: "",
@@ -161,7 +163,15 @@ export default function OnboardingWizard() {
         />
       )}
       {step === 4 && (
-        <PreferenceForm
+        <PreferenceFlavorForm
+          initialData={formData}
+          buttonLabel={`Next (4/${TOTAL_STEPS})`}
+          onSubmit={handleNext}
+          onBack={handleBack}
+        />
+      )}
+      {step === 5 && (
+        <PreferenceTextureForm
           initialData={formData}
           buttonLabel={submitting ? "Saving..." : "Complete Setup"}
           disabled={submitting ? true : false}

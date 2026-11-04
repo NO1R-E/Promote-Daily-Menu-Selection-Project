@@ -15,7 +15,7 @@ import { OnboardingFormData, UserPref } from "@/src/types/OnboardingType";
 type Tag = { tag_id: number; tag_name: string };
 
 // group_id ในตาราง tag_groups ของแท็กที่ใช้ถามความชอบ (เดิมใช้ tag_category = "LIKING")
-const LIKING_GROUP_ID = 3;
+const FLAVOR_GROUP_ID = 3;
 
 type Props = {
   initialData: Partial<OnboardingFormData>;
@@ -43,7 +43,7 @@ export default function PreferenceForm({
     supabase
       .from("tags")
       .select("tag_id, tag_name")
-      .eq("group_id", LIKING_GROUP_ID)
+      .eq("group_id", FLAVOR_GROUP_ID)
       .then(({ data, error }) => {
         if (error) {
           console.error("Error loading filter tags:", error);
@@ -74,8 +74,8 @@ export default function PreferenceForm({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>What do you like?</Text>
-        <Text style={styles.subtitle}>Tap like or dislike — skip anything you're unsure about.</Text>
+        <Text style={styles.title}>What do you like flavors?</Text>
+        <Text style={styles.subtitle}>Tap like neutral or dislike.</Text>
       </View>
 
       {loading && (
@@ -119,6 +119,17 @@ export default function PreferenceForm({
                     Like
                   </Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.thumbBtn, v === 0 && styles.neutralSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => setVector(tag.tag_id, 0)}
+                >
+                  <Text style={v === 0 ? styles.thumbTextSelected : styles.thumbText}>
+                    Neutral
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.thumbBtn, v === -1 && styles.dislikeSelected]}
                   activeOpacity={0.8}
@@ -191,6 +202,7 @@ const styles = StyleSheet.create({
   },
   thumbIcon: { marginRight: 6 },
   likeSelected: { backgroundColor: "#34C759", borderColor: "#34C759" },
+  neutralSelected: { backgroundColor: "#C7C7CC", borderColor: "#C7C7CC" },
   dislikeSelected: { backgroundColor: "#FF3B30", borderColor: "#FF3B30" },
   thumbText: { color: "#3A3A3C", fontSize: 14, fontWeight: "500" },
   thumbTextSelected: { color: "#fff", fontWeight: "700" },

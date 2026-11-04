@@ -45,6 +45,7 @@ async function fetchCuisine(recipeId: number): Promise<DetailCuisine[]> {
     .from("tags")
     .select("tag_id, tag_name")
     .eq("group_id", CUISINE_GROUP);
+    console.log("fetchCuisine", recipeId, "tags:", tags?.length, "error:", error);
   if (error) throw error;
   const names = new Map<number, string>((tags ?? []).map((t: any) => [Number(t.tag_id), t.tag_name]));
   if (names.size === 0) {

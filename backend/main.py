@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import chat_router, health_router, plan_router, meal_router
+from routers import chat_router, health_router, plan_router, meal_router, ingredient_router
 from contextlib import asynccontextmanager
 from services.supabase_service import fetch_recipes_cache
 
@@ -26,6 +26,7 @@ app.include_router(health_router.router)
 app.include_router(chat_router.router)
 app.include_router(plan_router.router)
 app.include_router(meal_router.router)
+app.include_router(ingredient_router.router)
 
 if __name__ == "__main__":
     import uvicorn

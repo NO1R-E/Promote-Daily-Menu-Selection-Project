@@ -1,6 +1,16 @@
 import { useState, useCallback } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
-import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal, Alert } from "react-native";
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  Image,
+  TouchableOpacity,
+  ActivityIndicator,
+  Modal,
+  Alert,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
@@ -8,6 +18,8 @@ import { Calendar } from "react-native-calendars";
 import Svg, { Circle } from "react-native-svg";
 import { DEFAULT_TARGETS, type Targets } from "@/src/utils/nutritionTargets";
 import { MEAL_TYPES, MEAL_LABEL } from "@/src/api/record";
+import { localDateString } from "@/src/utils/date";
+import { openRecipeInForum } from "@/src/utils/openRecipe";
 
 const ORANGE = "#F28E2B";
 const ORANGE_DARK = "#C96A0A";
@@ -33,10 +45,14 @@ const mapRecipeFeatures = (features: any) => {
 const getFirstImage = (img: any): string | null => {
   let value = img;
   if (typeof value === "string" && value.trim().startsWith("[")) {
-    try { value = JSON.parse(value); } catch { }
+    try {
+      value = JSON.parse(value);
+    } catch {}
   }
   if (Array.isArray(value)) {
-    return value.find((u: any) => typeof u === "string" && u.length > 0) || null;
+    return (
+      value.find((u: any) => typeof u === "string" && u.length > 0) || null
+    );
   }
   return typeof value === "string" && value.length > 0 ? value : null;
 };
@@ -45,25 +61,26 @@ export default function TrackingRecordScreen() {
   const router = useRouter();
   const { user, personalData } = useAuth();
 
-  const [items, setItems] = useState<any[]>([]); 
+  const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [targets, setTargets] = useState<Targets>(DEFAULT_TARGETS);
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(localDateString());
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
 
   const changeDate = (daysToShift: number) => {
-    const current = new Date(selectedDate);
-    current.setDate(current.getDate() + daysToShift);
-    const formattedDate = current.toISOString().split("T")[0];
-    const todayStr = new Date().toISOString().split("T")[0];
+    // build from y/m/d parts so the shift stays in the user's local calendar (no UTC drift)
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    const formattedDate = localDateString(new Date(y, m - 1, d + daysToShift));
+    const todayStr = localDateString();
 
     if (daysToShift > 0 && formattedDate > todayStr) {
       return;
     }
     setSelectedDate(formattedDate);
   };
+
+  // Only today can be changed; older days are read-only (the database enforces this too)
+  const isToday = selectedDate === localDateString();
 
   const fetchTargets = async () => {
     if (!user) return;
@@ -87,7 +104,7 @@ export default function TrackingRecordScreen() {
               sugar: Number(data.sugar_g),
               sodium: Number(data.sodium_mg),
             }
-          : DEFAULT_TARGETS
+          : DEFAULT_TARGETS,
       );
     } catch (error) {
       console.error("Error fetching daily targets:", error);
@@ -102,7 +119,8 @@ export default function TrackingRecordScreen() {
 
       const { data, error } = await supabase
         .from("record_item")
-        .select(`
+        .select(
+          `
         record_item_id,
         record_date,
         meal_type,
@@ -122,7 +140,8 @@ export default function TrackingRecordScreen() {
             sodium
           )
         )
-      `)
+      `,
+        )
         .eq("user_id", user.id)
         .eq("record_date", selectedDate);
 
@@ -131,7 +150,7 @@ export default function TrackingRecordScreen() {
       if (data && Array.isArray(data)) {
         const formattedItems = data.map((item: any) => ({
           ...item,
-          calculatedNutrients: mapRecipeFeatures(item.recipe?.recipe_features)
+          calculatedNutrients: mapRecipeFeatures(item.recipe?.recipe_features),
         }));
         setItems(formattedItems);
       } else {
@@ -147,17 +166,19 @@ export default function TrackingRecordScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchDailyRecords();
-    }, [user, selectedDate])
+    }, [user, selectedDate]),
   );
 
   useFocusEffect(
     useCallback(() => {
       fetchTargets();
-    }, [user, personalData])
+    }, [user, personalData]),
   );
 
   // กดปุ่ม + แล้วนำไปหน้า searchOnTime ทันที พร้อมส่งค่า meal_type ไปด้วย
-  const handleAddFoodDirect = (mealType: (typeof MEAL_TYPES)[number] = "breakfast") => {
+  const handleAddFoodDirect = (
+    mealType: (typeof MEAL_TYPES)[number] = "breakfast",
+  ) => {
     router.push({
       pathname: "/(app)/(tabs)/record/searchOnTime",
       params: { meal_type: mealType, selected_date: selectedDate },
@@ -175,42 +196,97 @@ export default function TrackingRecordScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              const { error } = await supabase
+              const { data: removed, error } = await supabase
                 .from("record_item")
                 .delete()
-                .eq("record_item_id", mealItem.record_item_id);
+                .eq("record_item_id", mealItem.record_item_id)
+                .select("record_item_id");
               if (error) throw error;
+              if (!removed || removed.length === 0) {
+                Alert.alert("Can't remove", "Past records can't be changed.");
+                return;
+              }
 
-              setItems((prev) => prev.filter((i) => i.record_item_id !== mealItem.record_item_id));
+              setItems((prev) =>
+                prev.filter(
+                  (i) => i.record_item_id !== mealItem.record_item_id,
+                ),
+              );
             } catch (err) {
               console.error("Error removing food:", err);
-              Alert.alert("Error", "Could not remove this food. Please try again.");
+              Alert.alert(
+                "Error",
+                "Could not remove this food. Please try again.",
+              );
             }
           },
         },
-      ]
+      ],
     );
   };
 
-  const totalCalories = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.calories || 0), 0));
-  const totalFat = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fat || 0), 0));
-  const totalProtein = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.protein || 0), 0));
-  const totalCarbs = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.carbs || 0), 0));
-  const totalFiber = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fiber || 0), 0));
-  const totalSugar = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sugar || 0), 0));
-  const totalSodium = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sodium || 0), 0));
+  const totalCalories = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.calories || 0),
+      0,
+    ),
+  );
+  const totalFat = Math.round(
+    items.reduce((sum, item) => sum + (item.calculatedNutrients?.fat || 0), 0),
+  );
+  const totalProtein = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.protein || 0),
+      0,
+    ),
+  );
+  const totalCarbs = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.carbs || 0),
+      0,
+    ),
+  );
+  const totalFiber = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.fiber || 0),
+      0,
+    ),
+  );
+  const totalSugar = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.sugar || 0),
+      0,
+    ),
+  );
+  const totalSodium = Math.round(
+    items.reduce(
+      (sum, item) => sum + (item.calculatedNutrients?.sodium || 0),
+      0,
+    ),
+  );
 
   const RING_SIZE = 105;
   const RING_STROKE = 8;
   const ringRadius = (RING_SIZE - RING_STROKE) / 2;
   const ringCircumference = 2 * Math.PI * ringRadius;
-  const caloriePercentage = Math.min(100, (totalCalories / targets.calories) * 100);
-  const ringStrokeDashoffset = ringCircumference - (caloriePercentage / 100) * ringCircumference;
+  const caloriePercentage = Math.min(
+    100,
+    (totalCalories / targets.calories) * 100,
+  );
+  const ringStrokeDashoffset =
+    ringCircumference - (caloriePercentage / 100) * ringCircumference;
   const caloriesRemaining = Math.max(0, targets.calories - totalCalories);
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF" }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "#FFF",
+        }}
+      >
         <ActivityIndicator size="large" color={ORANGE} />
       </View>
     );
@@ -219,11 +295,13 @@ export default function TrackingRecordScreen() {
   return (
     <View style={styles.mainContainer}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-
         {/* ส่วนที่ 1: Header ตัวสลับวันที่ */}
         <View style={styles.dateHeader}>
           <View style={styles.datePickerContainer}>
-            <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(-1)}>
+            <TouchableOpacity
+              style={styles.arrowButton}
+              onPress={() => changeDate(-1)}
+            >
               <Ionicons name="chevron-back" size={24} color={ORANGE} />
             </TouchableOpacity>
 
@@ -231,14 +309,21 @@ export default function TrackingRecordScreen() {
               style={styles.dateSelectButton}
               onPress={() => setIsCalendarVisible(true)}
             >
-              <Ionicons name="calendar-outline" size={20} color={ORANGE} style={{ marginRight: 6 }} />
+              <Ionicons
+                name="calendar-outline"
+                size={20}
+                color={ORANGE}
+                style={{ marginRight: 6 }}
+              />
               <Text style={styles.dateDisplayTitle}>
-                {selectedDate === new Date().toISOString().split("T")[0] ? "Today " : ""}
-                ({selectedDate})
+                {isToday ? "Today " : ""}({selectedDate})
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.arrowButton} onPress={() => changeDate(1)}>
+            <TouchableOpacity
+              style={styles.arrowButton}
+              onPress={() => changeDate(1)}
+            >
               <Ionicons name="chevron-forward" size={24} color={ORANGE} />
             </TouchableOpacity>
           </View>
@@ -254,23 +339,29 @@ export default function TrackingRecordScreen() {
 
         {/* ส่วนที่ 2: Dashboard */}
         <View style={styles.topDashboard}>
-
           {/* Meals On Time Card */}
           <View style={styles.onTimeCard}>
             <View style={styles.onTimeCardHeader}>
               <Text style={styles.cardTitle}>Meals On Time</Text>
-              <TouchableOpacity
-                style={styles.addFoodInlineBtn}
-                onPress={() => handleAddFoodDirect()}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
+              {isToday && (
+                <TouchableOpacity
+                  style={styles.addFoodInlineBtn}
+                  onPress={() => handleAddFoodDirect()}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="add" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
             </View>
+            {!isToday && (
+              <Text style={styles.readOnlyNote}>
+                Past days are read-only. Tap a meal to view its recipe.
+              </Text>
+            )}
 
             {MEAL_TYPES.map((mealType) => {
               const mealItems = items.filter(
-                (item) => item.meal_type?.toLowerCase() === mealType
+                (item) => item.meal_type?.toLowerCase() === mealType,
               );
               const mealLabel = MEAL_LABEL[mealType];
 
@@ -281,31 +372,64 @@ export default function TrackingRecordScreen() {
                   {/* เงื่อนไข: ถ้ายังไม่มีเมนูในมื้อนี้ ให้แสดงข้อความแจ้งเตือน */}
                   {mealItems.length === 0 ? (
                     <View style={styles.emptyMealRow}>
-                      <Text style={styles.emptyMealText}>no menu for {mealLabel.toLowerCase()}.</Text>
+                      <Text style={styles.emptyMealText}>
+                        no menu for {mealLabel.toLowerCase()}.
+                      </Text>
                     </View>
                   ) : (
                     mealItems.map((mealItem) => (
-                      <View key={mealItem.record_item_id} style={styles.mealRow}>
+                      <TouchableOpacity
+                        key={mealItem.record_item_id}
+                        style={styles.mealRow}
+                        activeOpacity={0.7}
+                        onPress={() =>
+                          openRecipeInForum(router, mealItem.recipe_id)
+                        }
+                      >
                         <Image
-                          source={{ uri: getFirstImage(mealItem.recipe?.img) || "https://via.placeholder.com/40" }}
+                          source={{
+                            uri:
+                              getFirstImage(mealItem.recipe?.img) ||
+                              "https://via.placeholder.com/40",
+                          }}
                           style={styles.mealThumb}
                         />
                         <View style={styles.mealInfo}>
-                          <Text style={styles.mealName}>{mealItem.recipe?.recipe_name || "Food"}</Text>
+                          <Text style={styles.mealName}>
+                            {mealItem.recipe?.recipe_name || "Food"}
+                          </Text>
                         </View>
                         <View style={styles.mealDoneActions}>
                           <View style={styles.checkedCircle}>
-                            <Ionicons name="checkmark" size={14} color="#34C759" />
+                            <Ionicons
+                              name="checkmark"
+                              size={14}
+                              color="#34C759"
+                            />
                           </View>
-                          <TouchableOpacity
-                            onPress={() => handleDeleteFood(mealItem, mealLabel)}
-                            style={styles.deleteFoodBtn}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
-                          </TouchableOpacity>
+                          {isToday ? (
+                            <TouchableOpacity
+                              onPress={() =>
+                                handleDeleteFood(mealItem, mealLabel)
+                              }
+                              style={styles.deleteFoodBtn}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons
+                                name="close-circle-outline"
+                                size={20}
+                                color="#FF3B30"
+                              />
+                            </TouchableOpacity>
+                          ) : (
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color="#C7C7CC"
+                            />
+                          )}
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     ))
                   )}
                 </View>
@@ -356,37 +480,49 @@ export default function TrackingRecordScreen() {
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#000000" }]} />
             <Text style={styles.macroLabel}>Fat</Text>
-            <Text style={styles.macroValue}>{totalFat}/{targets.fat}g</Text>
+            <Text style={styles.macroValue}>
+              {totalFat}/{targets.fat}g
+            </Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#2F80ED" }]} />
             <Text style={styles.macroLabel}>Protein</Text>
-            <Text style={styles.macroValue}>{totalProtein}/{targets.protein}g</Text>
+            <Text style={styles.macroValue}>
+              {totalProtein}/{targets.protein}g
+            </Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#F2994A" }]} />
             <Text style={styles.macroLabel}>Carbs</Text>
-            <Text style={styles.macroValue}>{totalCarbs}/{targets.carb}g</Text>
+            <Text style={styles.macroValue}>
+              {totalCarbs}/{targets.carb}g
+            </Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#27AE60" }]} />
             <Text style={styles.macroLabel}>Fiber</Text>
-            <Text style={styles.macroValue}>{totalFiber}/{targets.fiber}g</Text>
+            <Text style={styles.macroValue}>
+              {totalFiber}/{targets.fiber}g
+            </Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#AADEF5" }]} />
             <Text style={styles.macroLabel}>Sugar</Text>
-            <Text style={styles.macroValue}>{totalSugar}/{targets.sugar}g</Text>
+            <Text style={styles.macroValue}>
+              {totalSugar}/{targets.sugar}g
+            </Text>
           </View>
 
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#EB5757" }]} />
             <Text style={styles.macroLabel}>Sodium</Text>
-            <Text style={styles.macroValue}>{totalSodium}/{targets.sodium}mg</Text>
+            <Text style={styles.macroValue}>
+              {totalSodium}/{targets.sodium}mg
+            </Text>
           </View>
         </View>
 
@@ -408,13 +544,17 @@ export default function TrackingRecordScreen() {
               <Text style={styles.calendarModalTitle}>Select Date</Text>
               <Calendar
                 current={selectedDate}
-                maxDate={new Date().toISOString().split("T")[0]}
+                maxDate={localDateString()}
                 onDayPress={(day) => {
                   setSelectedDate(day.dateString);
                   setIsCalendarVisible(false);
                 }}
                 markedDates={{
-                  [selectedDate]: { selected: true, selectedColor: ORANGE, selectedTextColor: "white" }
+                  [selectedDate]: {
+                    selected: true,
+                    selectedColor: ORANGE,
+                    selectedTextColor: "white",
+                  },
                 }}
                 theme={{
                   todayTextColor: ORANGE,
@@ -440,12 +580,30 @@ const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: "#FFFFFF" },
   container: { flex: 1, paddingHorizontal: 20 },
 
-  dateHeader: { flexDirection: "row", alignItems: "center", marginTop: 25, marginBottom: 15 },
-  
+  dateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 25,
+    marginBottom: 15,
+  },
+
   topDashboard: { flexDirection: "column", marginBottom: 25 },
-  calorieCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 15, alignItems: "center", justifyContent: "center", marginTop: 15 },
-  onTimeCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 15 },
-  
+  calorieCard: {
+    backgroundColor: ORANGE_SOFT,
+    width: "100%",
+    borderRadius: 20,
+    padding: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 15,
+  },
+  onTimeCard: {
+    backgroundColor: ORANGE_SOFT,
+    width: "100%",
+    borderRadius: 20,
+    padding: 15,
+  },
+
   onTimeCardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -462,15 +620,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  circleWrapper: { width: 105, height: 105, justifyContent: "center", alignItems: "center" },
-  circleTextOverlay: { position: "absolute", justifyContent: "center", alignItems: "center" },
+  circleWrapper: {
+    width: 105,
+    height: 105,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  circleTextOverlay: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   circleNumber: { fontSize: 22, fontWeight: "bold", color: "#333" },
   circleUnit: { fontSize: 12, color: "#888" },
   calorieRemainingText: { fontSize: 12, color: "#666", marginTop: 10 },
 
   mealGroup: { marginBottom: 12 },
-  mealGroupTitle: { fontSize: 13, fontWeight: "700", color: ORANGE_DARK, marginBottom: 7, marginTop: 2 },
-  
+  mealGroupTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ORANGE_DARK,
+    marginBottom: 7,
+    marginTop: 2,
+  },
+
   // สไตล์สำหรับกล่องข้อความเมื่อยังไม่มีเมนูในมื้อนั้น
   emptyMealRow: {
     backgroundColor: "#FFF",
@@ -488,16 +661,37 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  mealRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 8, borderRadius: 26, marginBottom: 8 },
+  mealRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF",
+    padding: 8,
+    borderRadius: 26,
+    marginBottom: 8,
+  },
   mealThumb: { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
   mealInfo: { flex: 1 },
   mealName: { fontSize: 13, fontWeight: "600", color: "#333" },
-  checkedCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#E8F5E9", justifyContent: "center", alignItems: "center" },
+  checkedCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#E8F5E9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   mealDoneActions: { flexDirection: "row", alignItems: "center", gap: 6 },
   deleteFoodBtn: { padding: 2 },
+  readOnlyNote: { fontSize: 12, color: "#8E8E93", marginBottom: 8 },
 
   macroSection: { marginTop: 5 },
-  macroRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderColor: ORANGE_LIGHT },
+  macroRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderColor: ORANGE_LIGHT,
+  },
   colorDot: { width: 14, height: 14, borderRadius: 7, marginRight: 15 },
   macroLabel: { fontSize: 16, fontWeight: "600", color: "#1A1A1A", flex: 1 },
   macroValue: { fontSize: 16, color: "#666", fontWeight: "500" },
@@ -513,12 +707,53 @@ const styles = StyleSheet.create({
   },
   arrowButton: { padding: 5 },
   dateDisplayTitle: { fontSize: 16, fontWeight: "bold", color: "#333" },
-  dateSelectButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.4)", justifyContent: "center", alignItems: "center" },
-  calendarCard: { backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, width: "85%", elevation: 5 },
-  calendarModalTitle: { fontSize: 16, fontWeight: "bold", color: "#333", textAlign: "center", marginBottom: 15 },
-  closeCalendarBtn: { marginTop: 15, paddingVertical: 12, backgroundColor: ORANGE_LIGHT, borderRadius: 12, alignItems: "center" },
+  dateSelectButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  calendarCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    width: "85%",
+    elevation: 5,
+  },
+  calendarModalTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  closeCalendarBtn: {
+    marginTop: 15,
+    paddingVertical: 12,
+    backgroundColor: ORANGE_LIGHT,
+    borderRadius: 12,
+    alignItems: "center",
+  },
   closeCalendarText: { fontSize: 14, fontWeight: "600", color: ORANGE_DARK },
-  chartButton: { backgroundColor: ORANGE, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 15, justifyContent: "center", alignItems: "center", marginLeft: 10 },
-  chartButtonLabel: { fontSize: 10, fontWeight: "600", color: "#FFFFFF", marginTop: 2 },
+  chartButton: {
+    backgroundColor: ORANGE,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 15,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 10,
+  },
+  chartButtonLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    marginTop: 2,
+  },
 });

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +13,9 @@ import {
 } from "react-native";
 import { HealthBanner } from "@/components/HealthBanner";
 import MealShareSliders from "@/components/MealShareSliders";
+import { anotherMeal } from "@/src/api/meal";
 import { generatePlan, rerollSlot } from "@/src/api/plan";
+import { useRecipeImages } from "@/src/hooks/useRecipeImages";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useHealth } from "@/src/contexts/HealthContext";
@@ -29,9 +32,17 @@ import { localDateString } from "@/src/utils/date";
 import { openRecipeInForum } from "@/src/utils/openRecipe";
 
 type Seen = Record<Slot, number[]>;
-type Ate = Partial<Record<Slot, string>>;
+type Mode = "day" | "single";
+type Single = {
+  recipe_id: number;
+  recipe_name: string;
+  calories: number;
+  protein: number;
+  meal_type?: string | null;
+  preferences?: string[];
+};
 
-const cache: { key?: string; plan?: Plan; seen?: Seen; ate?: Ate } = {};
+const cache: { key?: string; plan?: Plan; seen?: Seen } = {};
 const EMPTY_SEEN: Seen = { breakfast: [], lunch: [], dinner: [] };
 
 export default function PlanScreen() {
@@ -46,7 +57,11 @@ export default function PlanScreen() {
   const [seen, setSeen] = useState<Seen>(
     hit ? (cache.seen ?? EMPTY_SEEN) : EMPTY_SEEN,
   );
-  const [ate, setAte] = useState<Ate>(hit ? (cache.ate ?? {}) : {});
+  const [mode, setMode] = useState<Mode>("day");
+  const [singleSlot, setSingleSlot] = useState<Slot>("lunch");
+  const [single, setSingle] = useState<Single | null>(null);
+  const [singleSeen, setSingleSeen] = useState<number[]>([]);
+  const [singleBusy, setSingleBusy] = useState(false);
   const [shares, setShares] = useState<Shares>(DEFAULT_SHARES);
   const [daily, setDaily] = useState({
     kcal: 2000,
@@ -64,8 +79,7 @@ export default function PlanScreen() {
     cache.key = cacheKey;
     cache.plan = plan;
     cache.seen = seen;
-    cache.ate = ate;
-  }, [cacheKey, plan, seen, ate]);
+  }, [cacheKey, plan, seen]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -132,7 +146,6 @@ export default function PlanScreen() {
         lunch: next.lunch ? [next.lunch.recipe_id] : [],
         dinner: next.dinner ? [next.dinner.recipe_id] : [],
       });
-      setAte({});
       setStale(false);
       setShowTargets(false);
       if (SLOTS.every((s) => !next[s])) {
@@ -179,41 +192,39 @@ export default function PlanScreen() {
     }
   };
 
-  const onAte = async (slot: Slot) => {
-    const meal = plan[slot];
-    if (!meal || !user?.id) return;
-    const { data, error } = await supabase
-      .from("record_item")
-      .insert({
-        user_id: user.id,
-        recipe_id: meal.recipe_id,
-        meal_type: slot,
-        record_date: localDateString(),
-      })
-      .select("record_item_id")
-      .single();
-    if (error) {
-      Alert.alert("Couldn't save this meal", error.message);
-      return;
+  // Single meal mode: one suggestion for the chosen meal; "Another" gives a different one
+  const onSuggestSingle = async (slot: Slot, reset: boolean) => {
+    if (!user?.id || singleBusy || !isServerHealthy) return;
+    setSingleBusy(true);
+    try {
+      const seenIds = reset ? [] : singleSeen;
+      const meal = await anotherMeal({
+        userId: user.id,
+        mealType: slot,
+        seenIds,
+        preferences: [],
+      });
+      if (!meal) {
+        Alert.alert(
+          "No other recipe fits",
+          "You've seen everything that matches this meal.",
+        );
+        return;
+      }
+      setSingle(meal as Single);
+      setSingleSeen([...seenIds, Number(meal.recipe_id)]);
+    } catch (err: any) {
+      Alert.alert("Couldn't get a meal", err.message);
+    } finally {
+      setSingleBusy(false);
     }
-    setAte((a) => ({ ...a, [slot]: data.record_item_id }));
   };
 
-  const onUndo = async (slot: Slot) => {
-    const id = ate[slot];
-    if (!id) return;
-    const { error } = await supabase
-      .from("record_item")
-      .delete()
-      .eq("record_item_id", id);
-    if (error) {
-      Alert.alert("Couldn't undo", error.message);
-      return;
-    }
-    setAte((a) => {
-      const { [slot]: _removed, ...rest } = a;
-      return rest;
-    });
+  const onPickSingleSlot = (slot: Slot) => {
+    if (slot === singleSlot) return;
+    setSingleSlot(slot);
+    setSingle(null);
+    setSingleSeen([]);
   };
 
   const onClear = (slot: Slot) => {
@@ -236,7 +247,10 @@ export default function PlanScreen() {
     },
     { kcal: 0, protein: 0, n: 0 },
   );
-  const eatenCount = SLOTS.filter((s) => plan[s] && ate[s]).length;
+  const images = useRecipeImages([
+    ...SLOTS.map((s) => plan[s]?.recipe_id).filter((n): n is number => !!n),
+    ...(single ? [single.recipe_id] : []),
+  ]);
   const kcalPct =
     daily.kcal > 0
       ? Math.min(100, Math.round((planned.kcal / daily.kcal) * 100))
@@ -290,64 +304,156 @@ export default function PlanScreen() {
           </Text>
         )}
 
-        <TouchableOpacity
-          style={[
-            styles.generateBtn,
-            (generating || !isServerHealthy) && styles.dimmed,
-          ]}
-          onPress={onGenerate}
-          disabled={generating || !isServerHealthy}
-        >
-          {generating ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.generateText}>
-              {planned.n > 0 ? "Generate a new plan" : "Generate plan"}
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        {SLOTS.map((slot) => {
-          const meal = plan[slot];
-          return (
-            <SlotCard
-              key={slot}
-              slot={slot}
-              pct={shares[slot]}
-              target={{
-                kcal: (daily.kcal * shares[slot]) / 100,
-                protein: (daily.protein * shares[slot]) / 100,
-              }}
-              meal={meal}
-              eatenId={ate[slot]}
-              busy={rerolling === slot}
-              online={isServerHealthy}
-              onOpen={() => meal && openRecipeInForum(router, meal.recipe_id)}
-              onReroll={() => onReroll(slot)}
-              onAte={() => onAte(slot)}
-              onUndo={() => onUndo(slot)}
-              onClear={() => onClear(slot)}
-            />
-          );
-        })}
-
-        {planned.n > 0 && (
-          <View style={styles.summary}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Planned</Text>
-              <Text style={styles.summaryValue}>
-                {Math.round(planned.kcal).toLocaleString()} /{" "}
-                {daily.kcal.toLocaleString()} kcal ·{" "}
-                {Math.round(planned.protein)} / {daily.protein} g protein
+        <View style={styles.modeRow}>
+          {(["day", "single"] as Mode[]).map((m) => (
+            <TouchableOpacity
+              key={m}
+              style={[styles.modeBtn, mode === m && styles.modeBtnOn]}
+              onPress={() => setMode(m)}
+            >
+              <Text style={[styles.modeText, mode === m && styles.modeTextOn]}>
+                {m === "day" ? "Day plan" : "Single meal"}
               </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {mode === "single" ? (
+          <>
+            <View style={styles.modeRow}>
+              {SLOTS.map((s) => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.chip, singleSlot === s && styles.chipOn]}
+                  onPress={() => onPickSingleSlot(s)}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      singleSlot === s && styles.chipTextOn,
+                    ]}
+                  >
+                    {SLOT_LABEL[s]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { width: `${kcalPct}%` }]} />
-            </View>
-            <Text style={styles.summaryNote}>
-              {eatenCount} of {planned.n} planned meals eaten
-            </Text>
-          </View>
+
+            {!single ? (
+              <TouchableOpacity
+                style={[
+                  styles.generateBtn,
+                  (singleBusy || !isServerHealthy) && styles.dimmed,
+                ]}
+                onPress={() => onSuggestSingle(singleSlot, true)}
+                disabled={singleBusy || !isServerHealthy}
+              >
+                {singleBusy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.generateText}>
+                    Suggest a {SLOT_LABEL[singleSlot].toLowerCase()}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.card}>
+                {!!images[single.recipe_id] && (
+                  <Image
+                    source={{ uri: images[single.recipe_id]! }}
+                    style={styles.mealImage}
+                  />
+                )}
+                <TouchableOpacity
+                  style={styles.mealRow}
+                  onPress={() => openRecipeInForum(router, single.recipe_id)}
+                >
+                  <Text style={styles.mealName}>{single.recipe_name}</Text>
+                  <Ionicons name="chevron-forward" size={18} color="#8E8E93" />
+                </TouchableOpacity>
+                <Text style={styles.mealNutrition}>
+                  {Math.round(single.calories)} kcal ·{" "}
+                  {Math.round(single.protein)} g protein
+                </Text>
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionBtn,
+                      { flex: 1 },
+                      (singleBusy || !isServerHealthy) && styles.dimmed,
+                    ]}
+                    onPress={() => onSuggestSingle(singleSlot, false)}
+                    disabled={singleBusy || !isServerHealthy}
+                  >
+                    {singleBusy ? (
+                      <ActivityIndicator size="small" color="#FF7A00" />
+                    ) : (
+                      <Text style={styles.actionText}>Another</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[
+                styles.generateBtn,
+                (generating || !isServerHealthy) && styles.dimmed,
+              ]}
+              onPress={onGenerate}
+              disabled={generating || !isServerHealthy}
+            >
+              {generating ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.generateText}>
+                  {planned.n > 0 ? "Generate a new plan" : "Generate plan"}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {SLOTS.map((slot) => {
+              const meal = plan[slot];
+              return (
+                <SlotCard
+                  key={slot}
+                  slot={slot}
+                  pct={shares[slot]}
+                  target={{
+                    kcal: (daily.kcal * shares[slot]) / 100,
+                    protein: (daily.protein * shares[slot]) / 100,
+                  }}
+                  meal={meal}
+                  imageUri={meal ? images[meal.recipe_id] : null}
+                  busy={rerolling === slot}
+                  online={isServerHealthy}
+                  onOpen={() =>
+                    meal && openRecipeInForum(router, meal.recipe_id)
+                  }
+                  onReroll={() => onReroll(slot)}
+                  onClear={() => onClear(slot)}
+                />
+              );
+            })}
+
+            {planned.n > 0 && (
+              <View style={styles.summary}>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Planned</Text>
+                  <Text style={styles.summaryValue}>
+                    {Math.round(planned.kcal).toLocaleString()} /{" "}
+                    {daily.kcal.toLocaleString()} kcal ·{" "}
+                    {Math.round(planned.protein)} / {daily.protein} g protein
+                  </Text>
+                </View>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${kcalPct}%` }]} />
+                </View>
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -359,13 +465,11 @@ type CardProps = {
   pct: number;
   target: { kcal: number; protein: number };
   meal?: PlanMeal;
-  eatenId?: string;
+  imageUri?: string | null;
   busy: boolean;
   online: boolean;
   onOpen: () => void;
   onReroll: () => void;
-  onAte: () => void;
-  onUndo: () => void;
   onClear: () => void;
 };
 
@@ -374,16 +478,13 @@ function SlotCard({
   pct,
   target,
   meal,
-  eatenId,
+  imageUri,
   busy,
   online,
   onOpen,
   onReroll,
-  onAte,
-  onUndo,
   onClear,
 }: CardProps) {
-  const eaten = !!eatenId;
   const fit =
     meal && target.kcal > 0
       ? Math.round((meal.calories / target.kcal) * 100)
@@ -409,15 +510,12 @@ function SlotCard({
         </Text>
       ) : (
         <>
+          {!!imageUri && (
+            <Image source={{ uri: imageUri }} style={styles.mealImage} />
+          )}
           <TouchableOpacity style={styles.mealRow} onPress={onOpen}>
             <Text style={styles.mealName}>{meal.recipe_name}</Text>
-            {eaten ? (
-              <View style={styles.eatenBadge}>
-                <Text style={styles.eatenText}>Eaten</Text>
-              </View>
-            ) : (
-              <Ionicons name="chevron-forward" size={18} color="#8E8E93" />
-            )}
+            <Ionicons name="chevron-forward" size={18} color="#8E8E93" />
           </TouchableOpacity>
           <Text style={styles.mealNutrition}>
             {Math.round(meal.calories)} kcal · {Math.round(meal.protein)} g
@@ -432,41 +530,24 @@ function SlotCard({
           )}
 
           <View style={styles.actions}>
-            {eaten ? (
-              <TouchableOpacity
-                style={[styles.actionBtn, { flex: 1 }]}
-                onPress={onUndo}
-              >
-                <Text style={styles.actionText}>Undo</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={[
-                    styles.actionBtn,
-                    { flex: 1 },
-                    (busy || !online) && styles.dimmed,
-                  ]}
-                  onPress={onReroll}
-                  disabled={busy || !online}
-                >
-                  {busy ? (
-                    <ActivityIndicator size="small" color="#FF7A00" />
-                  ) : (
-                    <Text style={styles.actionText}>Reroll</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtn, { flex: 1 }]}
-                  onPress={onAte}
-                >
-                  <Text style={styles.actionText}>Ate it</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn} onPress={onClear}>
-                  <Ionicons name="close" size={18} color="#FF7A00" />
-                </TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { flex: 1 },
+                (busy || !online) && styles.dimmed,
+              ]}
+              onPress={onReroll}
+              disabled={busy || !online}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#FF7A00" />
+              ) : (
+                <Text style={styles.actionText}>Reroll</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} onPress={onClear}>
+              <Ionicons name="close" size={18} color="#FF7A00" />
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -537,13 +618,40 @@ const styles = StyleSheet.create({
   mealName: { flex: 1, fontSize: 16, fontWeight: "700", color: "#1C1C1E" },
   mealNutrition: { fontSize: 13, color: "#6C6C70", marginTop: 2 },
   fit: { fontSize: 12, marginTop: 2 },
-  eatenBadge: {
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+  mealImage: {
+    width: "100%",
+    height: 150,
+    borderRadius: 10,
+    marginBottom: 10,
+    backgroundColor: "#F0F0F0",
   },
-  eatenText: { fontSize: 11, fontWeight: "600", color: "#2E7D32" },
+  modeRow: { flexDirection: "row", gap: 8 },
+  modeBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FF7A00",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  modeBtnOn: { backgroundColor: "#FF7A00" },
+  modeText: { color: "#FF7A00", fontWeight: "600", fontSize: 14 },
+  modeTextOn: { color: "#FFFFFF" },
+  chip: {
+    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "#E5E5EA",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  chipOn: { borderColor: "#FF7A00", backgroundColor: "#FFF3E6" },
+  chipText: { color: "#6C6C70", fontWeight: "600", fontSize: 13 },
+  chipTextOn: { color: "#FF7A00" },
   actions: { flexDirection: "row", gap: 8, marginTop: 12 },
   actionBtn: {
     height: 38,

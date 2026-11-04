@@ -67,3 +67,8 @@ export async function undoLog(recordId: string): Promise<void> {
   const { error } = await supabase.from("record_item").delete().eq("record_item_id", recordId);
   if (error) throw error;
 }
+
+export async function likeMeal(recipeId: number): Promise<void> {
+  const { error } = await supabase.rpc("like_recommended_meal", { p_recipe_id: recipeId });
+  if (error) throw error;
+}

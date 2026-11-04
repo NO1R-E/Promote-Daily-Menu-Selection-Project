@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Image,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -19,9 +19,10 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { useHealth } from "@/src/contexts/HealthContext";
 import { supabase } from "@/src/config/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { localDateString } from "@/src/utils/date";
+import { likeMeal } from "@/src/api/record";
+import { markAskedLike, shouldAskLike } from "@/src/utils/likePrompt";
 import { openRecipeInForum } from "@/src/utils/openRecipe";
-import { anotherMeal } from "@/src/api/meal";
+import { useRecipeImages } from "@/src/hooks/useRecipeImages";
 import { emitRoomsChanged, onRoomDeleted } from "@/src/utils/chatRoomEvents";
 import { useChatRoom } from "@/src/contexts/ChatRoomContext";
 
@@ -37,9 +38,6 @@ function parseRecommendations(metadata: string | null): MealRecommendation[] {
   }
 }
 
-// การ์ดแต่ละใบ = ข้อความ + ลำดับในข้อความนั้น (แผนมีหลายใบต่อข้อความ)
-const cardKey = (messageId: string, index: number) => `${messageId}:${index}`;
-
 export default function ChatbotScreen() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState("");
@@ -52,42 +50,15 @@ export default function ChatbotScreen() {
 
   const listRef = useRef<FlatList<MessageItem>>(null);
   const skipFetchRef = useRef(false);
-  const seenRef = useRef<Record<string, number[]>>({});
-  const [busyKey, setBusyKey] = useState<string | null>(null); // กำลังขอ Another
-  const [loggingKey, setLoggingKey] = useState<string | null>(null); // กำลังบันทึก/ยกเลิก
-  const [logged, setLogged] = useState<Record<string, string>>({}); // cardKey -> record_item_id
-
-  // เข้าห้องเดิม: การ์ดที่วันนี้บันทึกไปแล้วต้องขึ้น Logged และล็อก Another
-  const hydrateLogged = async (items: MessageItem[]) => {
-    if (!user?.id) return;
-    const ids = new Set<number>();
-    items.forEach((m) =>
-      (m.recommendations ?? []).forEach((r) => ids.add(Number(r.recipe_id))),
-    );
-    if (ids.size === 0) {
-      setLogged({});
-      return;
-    }
-    const { data } = await supabase
-      .from("record_item")
-      .select("record_item_id, recipe_id, meal_type")
-      .eq("user_id", user.id)
-      .eq("record_date", localDateString())
-      .in("recipe_id", Array.from(ids));
-
-    const next: Record<string, string> = {};
-    items.forEach((m) =>
-      (m.recommendations ?? []).forEach((r, i) => {
-        const hit = (data ?? []).find(
-          (d: any) =>
-            Number(d.recipe_id) === Number(r.recipe_id) &&
-            (!r.meal_type || d.meal_type === r.meal_type),
-        );
-        if (hit) next[cardKey(m.id, i)] = hit.record_item_id;
-      }),
-    );
-    setLogged(next);
-  };
+  const images = useRecipeImages(
+    messages.flatMap((m) =>
+      (m.recommendations ?? []).map((r) => Number(r.recipe_id)),
+    ),
+  );
+  console.log("ChatbotScreen: images", images);
+  const [likeState, setLikeState] = useState<
+    Record<string, "asking" | "yes" | "no">
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +71,6 @@ export default function ChatbotScreen() {
       }
       if (!currentRoom) {
         setMessages([]);
-        setLogged({});
         return;
       }
 
@@ -126,7 +96,6 @@ export default function ChatbotScreen() {
           recommendations: parseRecommendations(m.metadata),
         }));
         setMessages(items);
-        await hydrateLogged(items);
       }
       if (!cancelled) setLoading(false);
     };
@@ -151,7 +120,6 @@ export default function ChatbotScreen() {
       if (currentRoom === deletedId) {
         skipFetchRef.current = false;
         setCurrentRoom(null);
-        setLogged({});
       }
     });
   }, [currentRoom]);
@@ -173,7 +141,6 @@ export default function ChatbotScreen() {
       if (!roomError && !stillThere) {
         roomId = null;
         setMessages([]);
-        setLogged({});
       }
     }
 
@@ -207,6 +174,15 @@ export default function ChatbotScreen() {
       };
 
       setMessages((prev) => [...prev, botMsg]);
+
+      // ask "Do you like this suggestion?" at most once a day
+      if (
+        (botMsg.recommendations?.length ?? 0) > 0 &&
+        (await shouldAskLike(user.id))
+      ) {
+        markAskedLike(user.id);
+        setLikeState((s) => ({ ...s, [botMsg.id]: "asking" }));
+      }
     } catch (err: any) {
       const errorMsg: MessageItem = {
         id: (Date.now() + 1).toString(),
@@ -219,121 +195,13 @@ export default function ChatbotScreen() {
     }
   };
 
-  const onAnother = async (messageId: string, index: number) => {
-    if (!user?.id || busyKey || loggingKey) return;
-    const key = cardKey(messageId, index);
-    if (logged[key]) return;
-
+  // Answer to "Do you like this suggestion?" Yes = like every meal currently shown in that message
+  const onAnswerLike = async (messageId: string, liked: boolean) => {
+    setLikeState((st) => ({ ...st, [messageId]: liked ? "yes" : "no" }));
+    if (!liked) return;
     const recs =
       messages.find((m) => m.id === messageId)?.recommendations ?? [];
-    const rec = recs[index];
-    if (!rec) return;
-
-    setBusyKey(key);
-    try {
-      const base = seenRef.current[key] ?? [Number(rec.recipe_id)];
-      // แผนหลายมื้อ: ไม่ให้ได้สูตรซ้ำกับมื้ออื่นในข้อความเดียวกัน
-      const others = recs
-        .filter((_, i) => i !== index)
-        .map((r) => Number(r.recipe_id));
-      const seen = Array.from(new Set([...base, ...others]));
-
-      const next = await anotherMeal({
-        userId: user.id,
-        mealType: rec.meal_type ?? null,
-        seenIds: seen,
-        preferences: rec.preferences ?? [],
-      });
-      if (!next) {
-        Alert.alert(
-          "No other recipe fits",
-          "You've seen everything that matches right now.",
-        );
-        return;
-      }
-      seenRef.current[key] = [...base, Number(next.recipe_id)];
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId
-            ? {
-                ...m,
-                recommendations: (m.recommendations ?? []).map((r, i) =>
-                  i === index ? next : r,
-                ),
-              }
-            : m,
-        ),
-      );
-    } catch (err: any) {
-      Alert.alert("Couldn't get another meal", err.message);
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  // Ate it / Logged: กดครั้งแรกบันทึก กดอีกครั้งลบบันทึกแล้วปลดล็อก Another
-  const onToggleLogged = async (messageId: string, index: number) => {
-    if (!user?.id || loggingKey) return;
-    const key = cardKey(messageId, index);
-    const rec = messages.find((m) => m.id === messageId)?.recommendations?.[
-      index
-    ];
-    if (!rec) return;
-
-    setLoggingKey(key);
-    try {
-      const existingId = logged[key];
-      if (existingId) {
-        const { error } = await supabase
-          .from("record_item")
-          .delete()
-          .eq("record_item_id", existingId);
-        if (error) {
-          Alert.alert("Couldn't undo", error.message);
-          return;
-        }
-        setLogged((l) => {
-          const { [key]: _removed, ...rest } = l;
-          return rest;
-        });
-        return;
-      }
-
-      const today = localDateString();
-      const recipeId = Number(rec.recipe_id);
-
-      // ถ้าวันนี้มีบันทึกสูตรนี้ (มื้อเดียวกัน) อยู่แล้ว ใช้อันเดิม ไม่เพิ่มซ้ำ
-      let q = supabase
-        .from("record_item")
-        .select("record_item_id")
-        .eq("user_id", user.id)
-        .eq("record_date", today)
-        .eq("recipe_id", recipeId);
-      if (rec.meal_type) q = q.eq("meal_type", rec.meal_type);
-      const { data: existing } = await q.limit(1);
-
-      let recordId: string | undefined = existing?.[0]?.record_item_id;
-      if (!recordId) {
-        const { data, error } = await supabase
-          .from("record_item")
-          .insert({
-            user_id: user.id,
-            recipe_id: recipeId,
-            meal_type: rec.meal_type ?? null,
-            record_date: today,
-          })
-          .select("record_item_id")
-          .single();
-        if (error) {
-          Alert.alert("Couldn't save this meal", error.message);
-          return;
-        }
-        recordId = data.record_item_id;
-      }
-      setLogged((l) => ({ ...l, [key]: recordId as string }));
-    } finally {
-      setLoggingKey(null);
-    }
+    await Promise.allSettled(recs.map((r) => likeMeal(Number(r.recipe_id))));
   };
 
   const renderSuggestedActions = () => {
@@ -392,10 +260,7 @@ export default function ChatbotScreen() {
     messageId: string,
     index: number,
   ) => {
-    const key = cardKey(messageId, index);
-    const isLogged = !!logged[key];
-    const anotherBusy = busyKey === key;
-    const logBusy = loggingKey === key;
+    const img = images[Number(rec.recipe_id)];
 
     return (
       <View
@@ -406,6 +271,7 @@ export default function ChatbotScreen() {
           activeOpacity={0.8}
           onPress={() => openRecipeInForum(router, rec.recipe_id)}
         >
+          {!!img && <Image source={{ uri: img }} style={styles.cardImage} />}
           {!!rec.meal_type && (
             <Text style={styles.mealTypeTag}>{rec.meal_type}</Text>
           )}
@@ -444,54 +310,6 @@ export default function ChatbotScreen() {
           </View>
           <Text style={styles.openHint}>Tap to open the recipe</Text>
         </TouchableOpacity>
-
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={[
-              styles.cardBtn,
-              { flex: 1 },
-              (isLogged || !!busyKey || !!loggingKey) && styles.cardBtnLocked,
-            ]}
-            onPress={() => onAnother(messageId, index)}
-            disabled={isLogged || !!busyKey || !!loggingKey}
-          >
-            {anotherBusy ? (
-              <ActivityIndicator size="small" color="#FF7A00" />
-            ) : (
-              <Text style={styles.cardBtnText}>Another</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.cardBtn,
-              { flex: 1 },
-              isLogged && styles.cardBtnLogged,
-            ]}
-            onPress={() => onToggleLogged(messageId, index)}
-            disabled={logBusy}
-          >
-            {logBusy ? (
-              <ActivityIndicator
-                size="small"
-                color={isLogged ? "#2E7D32" : "#FF7A00"}
-              />
-            ) : isLogged ? (
-              <View style={styles.loggedRow}>
-                <Ionicons name="checkmark" size={16} color="#2E7D32" />
-                <Text style={styles.cardBtnTextLogged}>Logged</Text>
-              </View>
-            ) : (
-              <Text style={styles.cardBtnText}>Ate it</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {isLogged && (
-          <Text style={styles.undoHint}>
-            Tap Logged to undo and unlock Another.
-          </Text>
-        )}
       </View>
     );
   };
@@ -541,6 +359,49 @@ export default function ChatbotScreen() {
                   )}
                 </View>
               )}
+
+              {recs.length > 0 && likeState[item.id] === "asking" && (
+                <View style={styles.likePrompt}>
+                  <Text style={styles.likePromptText}>
+                    Do you like this suggestion?
+                  </Text>
+                  <View style={styles.likePromptRow}>
+                    <TouchableOpacity
+                      style={styles.likeYesBtn}
+                      onPress={() => onAnswerLike(item.id, true)}
+                    >
+                      <Ionicons
+                        name="thumbs-up-outline"
+                        size={14}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.likeYesText}>Yes</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.likeNoBtn}
+                      onPress={() => onAnswerLike(item.id, false)}
+                    >
+                      <Text style={styles.likeNoText}>Not really</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setLikeState((st) => ({ ...st, [item.id]: "no" }))
+                      }
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close" size={18} color="#8E8E93" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              {(likeState[item.id] === "yes" || likeState[item.id] === "no") &&
+                recs.length > 0 && (
+                  <Text style={styles.likeThanks}>
+                    {likeState[item.id] === "yes"
+                      ? "Thanks! We'll suggest more like this."
+                      : "Thanks for the feedback."}
+                  </Text>
+                )}
             </View>
           );
         }}
@@ -659,21 +520,48 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   openHint: { fontSize: 11, color: "#8E8E93", marginTop: 6 },
-  cardActions: { flexDirection: "row", gap: 8, marginTop: 10 },
-  cardBtn: {
-    height: 36,
+  cardImage: {
+    width: "100%",
+    height: 140,
     borderRadius: 10,
+    marginBottom: 8,
+    backgroundColor: "#F0F0F0",
+  },
+
+  likePrompt: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#FFEAD5",
+  },
+  likePromptText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1C1C1E",
+    marginBottom: 8,
+  },
+  likePromptRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  likeYesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FF7A00",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  likeYesText: { color: "#FFFFFF", fontWeight: "600", fontSize: 13 },
+  likeNoBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#FF7A00",
-    alignItems: "center",
-    justifyContent: "center",
   },
-  cardBtnText: { color: "#FF7A00", fontWeight: "600", fontSize: 14 },
-  cardBtnLocked: { opacity: 0.4 },
-  cardBtnLogged: { borderColor: "#2E7D32", backgroundColor: "#E8F5E9" },
-  cardBtnTextLogged: { color: "#2E7D32", fontWeight: "600", fontSize: 14 },
-  loggedRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  undoHint: { fontSize: 11, color: "#6C6C70", marginTop: 6 },
+  likeNoText: { color: "#FF7A00", fontWeight: "600", fontSize: 13 },
+  likeThanks: { fontSize: 12, color: "#6C6C70", marginTop: 6 },
 
   loader: { marginVertical: 6 },
   inputBar: {

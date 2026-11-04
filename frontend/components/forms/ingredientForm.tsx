@@ -25,7 +25,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
-import IngredientTagPicker from "./IngredientTagPicker";
+import { useAuth } from "@/src/contexts/AuthContext";
+import { useHealth } from "@/src/contexts/HealthContext";
+import { estimateIngredient } from "@/src/api/ingredientAi";
+import IngredientTagPicker, { TagHint } from "./IngredientTagPicker";
 import {
   ORANGE,
   ORANGE_DARK,
@@ -39,6 +42,28 @@ import {
   sanitizeNumber,
   getNutrientLabel,
 } from "./ingredientCommon";
+
+const DIET_GROUP_ID = 7;
+const DIET_NOTE =
+  "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None.";
+const DIET_HINTS: TagHint[] = [
+  {
+    match: /vegan/i,
+    text: "No animal products at all: no meat, fish, egg, dairy or honey.",
+  },
+  {
+    match: /vegetarian/i,
+    text: "No meat or fish. May contain egg and/or dairy.",
+  },
+  {
+    match: /\bj[ae]{1,2}y?\b|jea|เจ/i,
+    text: "Jay (เจ) food: fully plant-based and also free of garlic, onion, leek, chives and other strong-smelling vegetables.",
+  },
+  {
+    match: /halal|ฮาลาล/i,
+    text: "Allowed under Islamic dietary law: no pork or alcohol, and any meat comes from an approved slaughter.",
+  },
+];
 
 type Nutrient = {
   nutrient_id: number;
@@ -56,14 +81,16 @@ export type IngredientFormProps = {
 
 // ข้อความ error ที่ฟังก์ชัน create_ingredient ส่งมา -> ข้อความที่แสดงให้ผู้ใช้
 const ERROR_MESSAGES: Record<string, string> = {
-  INGREDIENT_EXISTS_SYSTEM: "This ingredient already exists in the system. Please select it from the System tab instead.",
+  INGREDIENT_EXISTS_SYSTEM:
+    "This ingredient already exists in the system. Please select it from the System tab instead.",
   INGREDIENT_EXISTS_MINE: "You already added an ingredient with this name.",
   LIMIT_REACHED: "You've reached the maximum number of custom ingredients.",
   NAME_REQUIRED: "Please enter an ingredient name.",
   NAME_TOO_LONG: "The ingredient name is too long.",
   NUTRIENT_REQUIRED: "Please enter at least one nutrient value.",
   NUTRIENT_INVALID: "Some nutrient values are invalid.",
-  NUTRIENT_OUT_OF_RANGE: "Some nutrient values look unrealistic for 100 g. Please check them.",
+  NUTRIENT_OUT_OF_RANGE:
+    "Some nutrient values look unrealistic for 100 g. Please check them.",
   TAG_INVALID: "Some selected tags are not allowed.",
   NOT_AUTHENTICATED: "Please log in again.",
   CALORIES_REQUIRED: "Please enter Calories.",
@@ -83,7 +110,10 @@ export default function IngredientForm({
   onCancel,
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
-  const heading = title ?? (isAdmin ? "Add Ingredient (Admin)" : "Add Ingredient");
+  const { user } = useAuth();
+  const { isServerHealthy } = useHealth();
+  const heading =
+    title ?? (isAdmin ? "Add Ingredient (Admin)" : "Add Ingredient");
 
   const [nutrients, setNutrients] = useState<Nutrient[]>([]);
   const [loadingNutrients, setLoadingNutrients] = useState(true);
@@ -93,7 +123,16 @@ export default function IngredientForm({
   const [nameTh, setNameTh] = useState("");
   const [values, setValues] = useState<Record<number, string>>({});
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [noneGroups, setNoneGroups] = useState<number[]>([]); // groups where the user chose "None"
+  const [missingGroups, setMissingGroups] = useState<string[]>([]);
+  const [showMissing, setShowMissing] = useState(false);
+  const dietOn = DIET_GROUP_ID > 0;
   const [saving, setSaving] = useState(false);
+
+  // AI assist: the user describes the ingredient, we pre-fill the form, the user reviews it
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null); // set => form currently holds an AI estimate
 
   // สารอาหารเพิ่มเติม: ที่เลือกมาแสดงบนฟอร์มแล้ว / แผงเลือก / รายการที่ติ๊กไว้ในแผง (ยังไม่กดเพิ่ม)
   const [extraIds, setExtraIds] = useState<number[]>([]);
@@ -128,7 +167,9 @@ export default function IngredientForm({
   const coreNames = isAdmin ? CORE_NUTRIENT_NAMES : USER_CORE_NUTRIENT_NAMES;
   const coreList = useMemo(() => {
     const byName = new Map(nutrients.map((n) => [n.nutrient_name, n]));
-    const list = coreNames.map((name) => byName.get(name)).filter(Boolean) as Nutrient[];
+    const list = coreNames
+      .map((name) => byName.get(name))
+      .filter(Boolean) as Nutrient[];
     return list.length > 0 ? list : nutrients;
   }, [nutrients, isAdmin]);
 
@@ -144,9 +185,13 @@ export default function IngredientForm({
     .filter(Boolean) as Nutrient[];
 
   // ที่ยังเลือกเพิ่มได้ + กรองตามช่องค้นหา
-  const addablePool = extraPool.filter((n) => !extraIds.includes(n.nutrient_id));
+  const addablePool = extraPool.filter(
+    (n) => !extraIds.includes(n.nutrient_id),
+  );
   const filteredPool = addablePool.filter((n) =>
-    getNutrientLabel(n.nutrient_name).toLowerCase().includes(extraQuery.trim().toLowerCase())
+    getNutrientLabel(n.nutrient_name)
+      .toLowerCase()
+      .includes(extraQuery.trim().toLowerCase()),
   );
 
   const handleChangeValue = (nutrientId: number, text: string) => {
@@ -155,14 +200,19 @@ export default function IngredientForm({
 
   const togglePending = (nutrientId: number) => {
     setPendingIds((prev) =>
-      prev.includes(nutrientId) ? prev.filter((id) => id !== nutrientId) : [...prev, nutrientId]
+      prev.includes(nutrientId)
+        ? prev.filter((id) => id !== nutrientId)
+        : [...prev, nutrientId],
     );
   };
 
   // เพิ่มสารอาหารที่ติ๊กไว้ทั้งหมดลงฟอร์มในครั้งเดียว
   const confirmAddExtra = () => {
     if (pendingIds.length === 0) return;
-    setExtraIds((prev) => [...prev, ...pendingIds.filter((id) => !prev.includes(id))]);
+    setExtraIds((prev) => [
+      ...prev,
+      ...pendingIds.filter((id) => !prev.includes(id)),
+    ]);
     setPendingIds([]);
     setExtraQuery("");
     setShowExtraPanel(false);
@@ -176,6 +226,95 @@ export default function IngredientForm({
       delete next[nutrientId];
       return next;
     });
+  };
+
+  // Ingredient-scoped tags the AI may choose from (cuisine / recipe-only groups are excluded)
+  const loadAiTags = async () => {
+    const { data, error } = await supabase
+      .from("tags")
+      .select("tag_id, tag_name, group_id, tag_groups!inner(group_name, scope)")
+      .eq("is_active", true)
+      .in("tag_groups.scope", ["ingredient", "both"])
+      .neq("group_id", CUISINE_GROUP_ID)
+      .neq("group_id", dietOn ? DIET_GROUP_ID : -1); // the AI never assigns diet labels
+    if (error) throw error;
+    return (data ?? []).map((t: any) => ({
+      id: Number(t.tag_id),
+      name: String(t.tag_name),
+      group: t.tag_groups?.group_name ?? null,
+    }));
+  };
+
+  const handleAiFill = async () => {
+    const text = aiText.trim();
+    if (!user?.id || aiBusy || saving || text.length < 3 || !isServerHealthy)
+      return;
+    setAiBusy(true);
+    try {
+      const tags = await loadAiTags();
+      const result = await estimateIngredient({
+        userId: user.id,
+        description: text,
+        nutrients: nutrients.map((n) => ({
+          name: n.nutrient_name,
+          unit: n.nutrient_unit,
+        })),
+        tags,
+      });
+      if (!result.is_ingredient) {
+        Alert.alert(
+          "Not an ingredient",
+          "Please describe a food ingredient, e.g. “boiled egg” or “homemade chili paste”.",
+        );
+        return;
+      }
+
+      const byName = new Map(nutrients.map((n) => [n.nutrient_name, n]));
+      const coreIds = new Set(coreList.map((n) => n.nutrient_id));
+      const nextValues: Record<number, string> = {};
+      const nextExtra: number[] = [];
+      Object.entries(result.nutrients).forEach(([name, amount]) => {
+        const n = byName.get(name);
+        if (!n) return;
+        nextValues[n.nutrient_id] = String(amount);
+        if (!coreIds.has(n.nutrient_id)) nextExtra.push(n.nutrient_id);
+      });
+
+      if (Object.keys(nextValues).length === 0) {
+        Alert.alert(
+          "No estimate",
+          "We couldn't estimate this one. Please fill the form manually.",
+        );
+        return;
+      }
+
+      // replace everything the previous estimate / typing put in the nutrient boxes
+      setValues(nextValues);
+      setExtraIds(nextExtra);
+      setPendingIds([]);
+      // keep what the user already chose in the Diet group; the AI never touches it
+      let keep: number[] = [];
+      if (dietOn) {
+        const { data: dietTags } = await supabase
+          .from("tags")
+          .select("tag_id")
+          .eq("group_id", DIET_GROUP_ID);
+        const dietIds = new Set(
+          (dietTags ?? []).map((t: any) => Number(t.tag_id)),
+        );
+        keep = tagIds.filter((id) => dietIds.has(id));
+      }
+      setTagIds([...keep, ...result.tag_ids]);
+      if (result.name && !nameEn.trim()) setNameEn(result.name);
+      setAiNote(result.note || "Estimated from your description.");
+    } catch (err: any) {
+      Alert.alert(
+        "Couldn't fill the form",
+        err.message || "Please fill it in manually.",
+      );
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   const handleSave = async () => {
@@ -196,6 +335,15 @@ export default function IngredientForm({
       }
     }
 
+    if (missingGroups.length > 0) {
+      setShowMissing(true);
+      Alert.alert(
+        "Warning",
+        `Please choose an option for ${missingGroups.join(", ")} (or None).`,
+      );
+      return;
+    }
+
     // รวมเฉพาะสารอาหารที่แสดงบนฟอร์มและกรอกค่าไว้ (ช่องว่างข้าม)
     const rows: { nutrient_id: number; amount: number }[] = [];
     for (const n of [...coreList, ...extraList]) {
@@ -204,7 +352,10 @@ export default function IngredientForm({
 
       const amount = Number(raw);
       if (!Number.isFinite(amount) || amount < 0) {
-        Alert.alert("Warning", `Invalid value for ${getNutrientLabel(n.nutrient_name)}`);
+        Alert.alert(
+          "Warning",
+          `Invalid value for ${getNutrientLabel(n.nutrient_name)}`,
+        );
         return;
       }
       rows.push({ nutrient_id: n.nutrient_id, amount });
@@ -233,9 +384,13 @@ export default function IngredientForm({
       setNameTh("");
       setValues({});
       setTagIds([]);
+      setNoneGroups([]);
+      setShowMissing(false);
       setExtraIds([]);
       setPendingIds([]);
       setShowExtraPanel(false);
+      setAiText("");
+      setAiNote(null);
       onSaved?.(Number(data));
       if (isAdmin) Alert.alert("Success", "Ingredient added successfully");
     } catch (error: any) {
@@ -284,6 +439,64 @@ export default function IngredientForm({
     <View style={styles.container}>
       {!!heading && <Text style={styles.title}>{heading}</Text>}
 
+      {/* AI assist */}
+      <View style={styles.aiBox}>
+        <View style={styles.aiHeader}>
+          <Ionicons name="sparkles-outline" size={16} color={ORANGE_DARK} />
+          <Text style={styles.aiTitle}>Describe it, we'll fill the form</Text>
+        </View>
+        <TextInput
+          style={styles.aiInput}
+          value={aiText}
+          onChangeText={setAiText}
+          placeholder="e.g. homemade chili paste with garlic and dried chili, oily"
+          placeholderTextColor="#999"
+          multiline
+          maxLength={300}
+          editable={!saving && !aiBusy}
+        />
+        <TouchableOpacity
+          style={[
+            styles.aiBtn,
+            (aiBusy ||
+              aiText.trim().length < 3 ||
+              loadingNutrients ||
+              loadError ||
+              !isServerHealthy) && { opacity: 0.5 },
+          ]}
+          onPress={handleAiFill}
+          disabled={
+            aiBusy ||
+            aiText.trim().length < 3 ||
+            loadingNutrients ||
+            loadError ||
+            saving ||
+            !isServerHealthy
+          }
+          activeOpacity={0.85}
+        >
+          {aiBusy ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Text style={styles.aiBtnText}>
+              {aiNote ? "Fill again" : "Fill form"}
+            </Text>
+          )}
+        </TouchableOpacity>
+        {!isServerHealthy && (
+          <Text style={styles.aiOffline}>
+            The assistant is offline right now. You can still fill the form by
+            hand.
+          </Text>
+        )}
+        {!!aiNote && (
+          <Text style={styles.aiNote}>
+            AI estimate per 100 g — please check the values and tags before
+            saving. {aiNote}
+          </Text>
+        )}
+      </View>
+
       {isAdmin ? (
         <>
           <Text style={styles.label}>Name (English)</Text>
@@ -306,11 +519,13 @@ export default function IngredientForm({
             placeholderTextColor="#999"
             editable={!saving}
           />
-          <Text style={styles.helper}>Fill at least one. Existing system names can't be added again.</Text>
+          <Text style={styles.helper}>
+            Fill at least one. Existing system names can't be added again.
+          </Text>
         </>
       ) : (
         <>
-          <Text style={styles.label}>Ingredient name</Text>
+          <Text style={styles.label}>Ingredient name *</Text>
           <TextInput
             style={styles.input}
             value={nameEn}
@@ -320,7 +535,8 @@ export default function IngredientForm({
             editable={!saving}
           />
           <Text style={styles.helper}>
-            Your ingredient is marked as unverified and only appears in your own list.
+            Your ingredient is marked as unverified and only appears in your own
+            list.
           </Text>
         </>
       )}
@@ -338,7 +554,9 @@ export default function IngredientForm({
 
       {loadError && (
         <View style={styles.errorBox}>
-          <Text style={styles.errorText}>Couldn't load nutrients. Check your connection.</Text>
+          <Text style={styles.errorText}>
+            Couldn't load nutrients. Check your connection.
+          </Text>
           <TouchableOpacity onPress={loadNutrients}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
@@ -373,7 +591,9 @@ export default function IngredientForm({
                   color={ORANGE_DARK}
                 />
                 <Text style={styles.addMoreText}>
-                  {showExtraPanel ? "Hide" : `Add more nutrients (${addablePool.length})`}
+                  {showExtraPanel
+                    ? "Hide"
+                    : `Add more nutrients (${addablePool.length})`}
                 </Text>
               </TouchableOpacity>
 
@@ -395,7 +615,9 @@ export default function IngredientForm({
                     showsVerticalScrollIndicator={false}
                   >
                     {filteredPool.length === 0 ? (
-                      <Text style={styles.emptyText}>No matching nutrients</Text>
+                      <Text style={styles.emptyText}>
+                        No matching nutrients
+                      </Text>
                     ) : (
                       filteredPool.map((n) => {
                         const checked = pendingIds.includes(n.nutrient_id);
@@ -411,8 +633,12 @@ export default function IngredientForm({
                               size={22}
                               color={checked ? ORANGE : "#C7C7CC"}
                             />
-                            <Text style={styles.pickName}>{getNutrientLabel(n.nutrient_name)}</Text>
-                            <Text style={styles.unitText}>{n.nutrient_unit || ""}</Text>
+                            <Text style={styles.pickName}>
+                              {getNutrientLabel(n.nutrient_name)}
+                            </Text>
+                            <Text style={styles.unitText}>
+                              {n.nutrient_unit || ""}
+                            </Text>
                           </TouchableOpacity>
                         );
                       })
@@ -420,13 +646,18 @@ export default function IngredientForm({
                   </ScrollView>
 
                   <TouchableOpacity
-                    style={[styles.confirmExtraBtn, pendingIds.length === 0 && { opacity: 0.5 }]}
+                    style={[
+                      styles.confirmExtraBtn,
+                      pendingIds.length === 0 && { opacity: 0.5 },
+                    ]}
                     activeOpacity={0.85}
                     disabled={pendingIds.length === 0}
                     onPress={confirmAddExtra}
                   >
                     <Text style={styles.confirmExtraText}>
-                      {pendingIds.length > 0 ? `Add selected (${pendingIds.length})` : "Select nutrients to add"}
+                      {pendingIds.length > 0
+                        ? `Add selected (${pendingIds.length})`
+                        : "Select nutrients to add"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -437,13 +668,23 @@ export default function IngredientForm({
       )}
 
       <Text style={[styles.label, { marginTop: 18 }]}>Tags</Text>
-      <Text style={styles.helper}>Tap a group to open it, then mark the tags that apply (optional).</Text>
+      <Text style={styles.helper}>
+        Tap a group to open it, then mark the tags that apply (optional).
+      </Text>
       {/* กลุ่ม Cuisine/Culture เป็นแท็กของสูตร ไม่ใช่ของวัตถุดิบ จึงไม่แสดงที่นี่ (เลือกในหน้าสร้างสูตร) */}
       <IngredientTagPicker
         selected={tagIds}
         onChange={setTagIds}
         excludeGroupIds={[CUISINE_GROUP_ID]}
         disabled={saving}
+        noneGroupIds={dietOn ? [DIET_GROUP_ID] : []}
+        noneSelected={noneGroups}
+        onNoneChange={setNoneGroups}
+        hideTagNamePrefix="Non-"
+        groupNotes={dietOn ? { [DIET_GROUP_ID]: DIET_NOTE } : undefined}
+        tagHints={dietOn ? DIET_HINTS : undefined}
+        onMissingChange={setMissingGroups}
+        highlightMissing={showMissing}
       />
 
       <View style={styles.buttonRow}>
@@ -458,12 +699,20 @@ export default function IngredientForm({
           </TouchableOpacity>
         )}
         <TouchableOpacity
-          style={[styles.button, styles.saveButton, blocked && { opacity: 0.6 }]}
+          style={[
+            styles.button,
+            styles.saveButton,
+            blocked && { opacity: 0.6 },
+          ]}
           activeOpacity={0.85}
           onPress={handleSave}
           disabled={blocked}
         >
-          {saving ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.saveButtonText}>{submitLabel}</Text>}
+          {saving ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Text style={styles.saveButtonText}>{submitLabel}</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -472,9 +721,20 @@ export default function IngredientForm({
 
 const styles = StyleSheet.create({
   container: { width: "100%" },
-  title: { fontSize: 18, fontWeight: "bold", color: ORANGE_DARK, marginBottom: 16 },
+  title: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: ORANGE_DARK,
+    marginBottom: 16,
+  },
   label: { fontSize: 14, fontWeight: "600", color: "#3A3A3C", marginBottom: 6 },
-  subLabel: { fontSize: 12, fontWeight: "600", color: "#8E8E93", marginTop: 14, marginBottom: 2 },
+  subLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#8E8E93",
+    marginTop: 14,
+    marginBottom: 2,
+  },
   helper: { fontSize: 12, color: "#8E8E93", marginTop: 6, marginBottom: 6 },
   input: {
     height: 48,
@@ -487,11 +747,59 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8F9FA",
   },
 
+  aiBox: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: ORANGE_BORDER,
+    backgroundColor: ORANGE_LIGHT,
+    marginBottom: 18,
+  },
+  aiHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  aiTitle: { fontSize: 14, fontWeight: "700", color: ORANGE_DARK },
+  aiInput: {
+    minHeight: 64,
+    borderWidth: 1.5,
+    borderColor: ORANGE_BORDER,
+    borderRadius: 10,
+    padding: 10,
+    fontSize: 14,
+    color: "#333",
+    backgroundColor: "#FFF",
+    textAlignVertical: "top",
+  },
+  aiBtn: {
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: ORANGE,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  aiBtnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+  aiOffline: { fontSize: 12, color: "#E66E00", marginTop: 8 },
+  aiNote: { fontSize: 12, color: "#8E8E93", marginTop: 8 },
+
   centerBlock: { paddingVertical: 20, alignItems: "center" },
-  errorBox: { padding: 14, backgroundColor: "#FFF3CD", borderRadius: 12, marginVertical: 10 },
+  errorBox: {
+    padding: 14,
+    backgroundColor: "#FFF3CD",
+    borderRadius: 12,
+    marginVertical: 10,
+  },
   errorText: { color: "#7A5B00", fontSize: 13, marginBottom: 6 },
   retryText: { color: ORANGE_DARK, fontWeight: "700", fontSize: 13 },
-  emptyText: { textAlign: "center", paddingVertical: 12, fontSize: 13, color: "#8E8E93" },
+  emptyText: {
+    textAlign: "center",
+    paddingVertical: 12,
+    fontSize: 13,
+    color: "#8E8E93",
+  },
 
   nutrientRow: {
     flexDirection: "row",
@@ -528,7 +836,12 @@ const styles = StyleSheet.create({
     borderColor: ORANGE_BORDER,
     backgroundColor: ORANGE_LIGHT,
   },
-  addMoreText: { marginLeft: 6, fontSize: 14, fontWeight: "600", color: ORANGE_DARK },
+  addMoreText: {
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: "600",
+    color: ORANGE_DARK,
+  },
 
   extraPanel: {
     marginTop: 10,
@@ -570,7 +883,13 @@ const styles = StyleSheet.create({
   confirmExtraText: { fontSize: 14, fontWeight: "700", color: ORANGE_DARK },
 
   buttonRow: { flexDirection: "row", marginTop: 22 },
-  button: { flex: 1, height: 46, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+  button: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   cancelButton: { backgroundColor: "#F2F2F7", marginRight: 10 },
   cancelButtonText: { color: "#8E8E93", fontSize: 16, fontWeight: "600" },
   saveButton: {

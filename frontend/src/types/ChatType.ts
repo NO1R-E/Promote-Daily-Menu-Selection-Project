@@ -1,7 +1,7 @@
 export type IntentType = "usual_chat" | "meal_recommendation" | "meal_plan";
 
 export interface MealRecommendation {
-  recipe_id: string;
+  recipe_id: number;
   recipe_name: string;
   health_score: number;
   liking_score: number;

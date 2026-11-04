@@ -1,48 +1,39 @@
 import { useState, useCallback } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, ActivityIndicator, Modal, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
-import { useFocusEffect } from "expo-router";
 import { Calendar } from "react-native-calendars";
 import Svg, { Circle } from "react-native-svg";
 import { DEFAULT_TARGETS, type Targets } from "@/src/utils/nutritionTargets";
 import { MEAL_TYPES, MEAL_LABEL } from "@/src/api/record";
 
-// [ORANGE] พาเลตสีส้มของแอป (ใช้เฉพาะจุดเด่น ไม่ใช่ทั้งหน้า)
-const ORANGE = "#F28E2B"; // สีหลัก (ปุ่ม/ไอคอน/progress)
-const ORANGE_DARK = "#C96A0A"; // ตัวอักษรหัวข้อบนพื้นส้มอ่อน
-const ORANGE_SOFT = "#FFEBD6"; // พื้นการ์ด
-const ORANGE_LIGHT = "#FFF5EA"; // พื้นแถบวันที่ / เส้นแบ่ง
-const ORANGE_TRACK = "#F9D5AE"; // รางของวงแหวน
-const ORANGE_BORDER = "#F6C48F"; // เส้นประปุ่ม Add meal
+const ORANGE = "#F28E2B";
+const ORANGE_DARK = "#C96A0A";
+const ORANGE_SOFT = "#FFEBD6";
+const ORANGE_LIGHT = "#FFF5EA";
+const ORANGE_TRACK = "#F9D5AE";
 
-// ดึงสารอาหารต่อ 1 serving จากตาราง recipe_features (คำนวณไว้ในฐานข้อมูลแล้ว ไม่ต้องคำนวณเองอีก)
 const mapRecipeFeatures = (features: any) => {
-  // ถ้า recipe_id ใน recipe_features ไม่ได้เป็น PK/unique Supabase จะคืนเป็น array
   const f = Array.isArray(features) ? features[0] : features;
-  // คอลัมน์ numeric จาก Postgres อาจมาเป็น string จึงแปลงเป็นตัวเลขก่อน
   const num = (v: any) => Number(v) || 0;
 
   return {
     calories: num(f?.calories),
     fat: num(f?.total_fat),
     protein: num(f?.protein),
-    carbs: num(f?.carb), // ชื่อคอลัมน์จริงใน DB คือ carb (ไม่มี s)
+    carbs: num(f?.carb),
     fiber: num(f?.fiber),
     sugar: num(f?.sugar),
     sodium: num(f?.sodium),
   };
 };
 
-// recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
-// (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
 const getFirstImage = (img: any): string | null => {
   let value = img;
-  // กรณีเก็บเป็นสตริง JSON เช่น '["https://..."]'
   if (typeof value === "string" && value.trim().startsWith("[")) {
-    try { value = JSON.parse(value); } catch { /* ใช้ค่าเดิม */ }
+    try { value = JSON.parse(value); } catch { }
   }
   if (Array.isArray(value)) {
     return value.find((u: any) => typeof u === "string" && u.length > 0) || null;
@@ -56,20 +47,15 @@ export default function TrackingRecordScreen() {
 
   const [items, setItems] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
-
-  // เป้าหมายสารอาหารรายวัน ดึงจาก view user_daily_targets (ถ้าไม่มีข้อมูล/ดึงไม่สำเร็จ จะใช้ค่าเดิม)
   const [targets, setTargets] = useState<Targets>(DEFAULT_TARGETS);
-
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
 
-  // ฟังก์ชันเปลี่ยนวัน
   const changeDate = (daysToShift: number) => {
     const current = new Date(selectedDate);
     current.setDate(current.getDate() + daysToShift);
-    // ป้องกันไม่ให้เลือกวันในอนาคต
     const formattedDate = current.toISOString().split("T")[0];
     const todayStr = new Date().toISOString().split("T")[0];
 
@@ -79,7 +65,6 @@ export default function TrackingRecordScreen() {
     setSelectedDate(formattedDate);
   };
 
-  // ดึงเป้าหมายรายวันจาก view user_daily_targets
   const fetchTargets = async () => {
     if (!user) return;
     try {
@@ -110,7 +95,6 @@ export default function TrackingRecordScreen() {
     }
   };
 
-  // ดึงข้อมูลจาก record_item 
   const fetchDailyRecords = async () => {
     if (!user) return;
     try {
@@ -166,15 +150,20 @@ export default function TrackingRecordScreen() {
     }, [user, selectedDate])
   );
 
-  // โหลดเป้าหมายใหม่ทุกครั้งที่เข้าหน้านี้ หรือเมื่อข้อมูลส่วนตัวเปลี่ยน
   useFocusEffect(
     useCallback(() => {
       fetchTargets();
     }, [user, personalData])
   );
 
-  // ลบแค่อาหารที่เลือกไว้ในมื้อนั้น (เอาออกจาก record_item ใน Supabase) แต่ไม่ลบช่องมื้อทิ้ง
-  // ลบเฉพาะเมนูที่เลือก ไม่ลบทั้งกลุ่มมื้ออาหาร
+  // กดปุ่ม + แล้วนำไปหน้า searchOnTime ทันที พร้อมส่งค่า meal_type ไปด้วย
+  const handleAddFoodDirect = (mealType: (typeof MEAL_TYPES)[number] = "breakfast") => {
+    router.push({
+      pathname: "/(app)/(tabs)/record/searchOnTime",
+      params: { meal_type: mealType, selected_date: selectedDate },
+    });
+  };
+
   const handleDeleteFood = (mealItem: any, mealName: string) => {
     Alert.alert(
       "Remove food",
@@ -203,7 +192,6 @@ export default function TrackingRecordScreen() {
     );
   };
 
-  // 3. ปรับการคำนวณผลรวมสารอาหารให้ดึงจาก calculatedNutrients
   const totalCalories = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.calories || 0), 0));
   const totalFat = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.fat || 0), 0));
   const totalProtein = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.protein || 0), 0));
@@ -212,7 +200,6 @@ export default function TrackingRecordScreen() {
   const totalSugar = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sugar || 0), 0));
   const totalSodium = Math.round(items.reduce((sum, item) => sum + (item.calculatedNutrients?.sodium || 0), 0));
 
-  // ค่าที่ใช้วาด progress ring ของ Calories
   const RING_SIZE = 105;
   const RING_STROKE = 8;
   const ringRadius = (RING_SIZE - RING_STROKE) / 2;
@@ -265,14 +252,22 @@ export default function TrackingRecordScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ส่วนที่ 2: Dashboard (Meals On Time ด้านบน / Calories ด้านล่าง) */}
+        {/* ส่วนที่ 2: Dashboard */}
         <View style={styles.topDashboard}>
 
-          {/* Meals On Time */}
+          {/* Meals On Time Card */}
           <View style={styles.onTimeCard}>
-            <Text style={styles.cardTitle}>Meals On Time</Text>
+            <View style={styles.onTimeCardHeader}>
+              <Text style={styles.cardTitle}>Meals On Time</Text>
+              <TouchableOpacity
+                style={styles.addFoodInlineBtn}
+                onPress={() => handleAddFoodDirect()}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
 
-            {/* แสดง 4 กลุ่มมื้ออาหาร แต่ละกลุ่มเพิ่มได้หลายเมนู */}
             {MEAL_TYPES.map((mealType) => {
               const mealItems = items.filter(
                 (item) => item.meal_type?.toLowerCase() === mealType
@@ -282,47 +277,43 @@ export default function TrackingRecordScreen() {
               return (
                 <View key={mealType} style={styles.mealGroup}>
                   <Text style={styles.mealGroupTitle}>{mealLabel}</Text>
-                  {mealItems.map((mealItem) => (
-                    <View key={mealItem.record_item_id} style={styles.mealRow}>
-                      <Image
-                        source={{ uri: getFirstImage(mealItem.recipe?.img) || "https://via.placeholder.com/40" }}
-                        style={styles.mealThumb}
-                      />
-                      <View style={styles.mealInfo}>
-                        <Text style={styles.mealName}>{mealItem.recipe?.recipe_name || "Food"}</Text>
-                      </View>
-                      <View style={styles.mealDoneActions}>
-                        <View style={styles.checkedCircle}>
-                          <Ionicons name="checkmark" size={14} color="#34C759" />
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteFood(mealItem, mealLabel)}
-                          style={styles.deleteFoodBtn}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
-                        </TouchableOpacity>
-                      </View>
+
+                  {/* เงื่อนไข: ถ้ายังไม่มีเมนูในมื้อนี้ ให้แสดงข้อความแจ้งเตือน */}
+                  {mealItems.length === 0 ? (
+                    <View style={styles.emptyMealRow}>
+                      <Text style={styles.emptyMealText}>no menu for {mealLabel.toLowerCase()}.</Text>
                     </View>
-                  ))}
-                  <TouchableOpacity
-                    style={styles.addMealRow}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(app)/(tabs)/record/searchOnTime",
-                        params: { meal_type: mealType, selected_date: selectedDate },
-                      })
-                    }
-                  >
-                    <Ionicons name="add-circle-outline" size={18} color={ORANGE} />
-                    <Text style={styles.addMealText}>Add food to {mealLabel}</Text>
-                  </TouchableOpacity>
+                  ) : (
+                    mealItems.map((mealItem) => (
+                      <View key={mealItem.record_item_id} style={styles.mealRow}>
+                        <Image
+                          source={{ uri: getFirstImage(mealItem.recipe?.img) || "https://via.placeholder.com/40" }}
+                          style={styles.mealThumb}
+                        />
+                        <View style={styles.mealInfo}>
+                          <Text style={styles.mealName}>{mealItem.recipe?.recipe_name || "Food"}</Text>
+                        </View>
+                        <View style={styles.mealDoneActions}>
+                          <View style={styles.checkedCircle}>
+                            <Ionicons name="checkmark" size={14} color="#34C759" />
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteFood(mealItem, mealLabel)}
+                            style={styles.deleteFoodBtn}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  )}
                 </View>
               );
             })}
           </View>
 
-          {/* Calories */}
+          {/* Calories Card */}
           <View style={styles.calorieCard}>
             <Text style={styles.cardTitle}>Calories</Text>
             <View style={styles.circleWrapper}>
@@ -360,9 +351,8 @@ export default function TrackingRecordScreen() {
           </View>
         </View>
 
-        {/* ส่วนที่ 3: แถบแสดง nutrient */}
+        {/* ส่วนที่ 3: แถบสารอาหาร */}
         <View style={styles.macroSection}>
-
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#000000" }]} />
             <Text style={styles.macroLabel}>Fat</Text>
@@ -398,12 +388,11 @@ export default function TrackingRecordScreen() {
             <Text style={styles.macroLabel}>Sodium</Text>
             <Text style={styles.macroValue}>{totalSodium}/{targets.sodium}mg</Text>
           </View>
-
         </View>
 
         <View style={{ height: 100 }} />
 
-        {/* ส่วนที่ 4: ปฏิทินเลือกวัน */}
+        {/* Modal เลือกวัน */}
         <Modal
           visible={isCalendarVisible}
           transparent={true}
@@ -417,7 +406,6 @@ export default function TrackingRecordScreen() {
           >
             <View style={styles.calendarCard}>
               <Text style={styles.calendarModalTitle}>Select Date</Text>
-
               <Calendar
                 current={selectedDate}
                 maxDate={new Date().toISOString().split("T")[0]}
@@ -434,7 +422,6 @@ export default function TrackingRecordScreen() {
                   textDayFontWeight: "500",
                 }}
               />
-
               <TouchableOpacity
                 style={styles.closeCalendarBtn}
                 onPress={() => setIsCalendarVisible(false)}
@@ -453,29 +440,54 @@ const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: "#FFFFFF" },
   container: { flex: 1, paddingHorizontal: 20 },
 
-  // Header Zone
-  dateHeader: { flexDirection: "row", alignItems: "center", marginTop: 25, marginBottom: 25 },
-  arrowBtn: { backgroundColor: "#F2F2F7", width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center" },
-  dateDropdown: { flexDirection: "row", alignItems: "center", backgroundColor: "#F2F2F7", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginLeft: 8 },
-  dateText: { fontSize: 16, fontWeight: "bold", color: "#1A1A1A" },
-  iconRight: { marginLeft: 16 },
-
-  // Dashboard Zone - เรียงเป็นแนวตั้ง: Meals On Time อยู่บน, Calories อยู่ล่าง
+  dateHeader: { flexDirection: "row", alignItems: "center", marginTop: 25, marginBottom: 15 },
+  
   topDashboard: { flexDirection: "column", marginBottom: 25 },
   calorieCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 15, alignItems: "center", justifyContent: "center", marginTop: 15 },
-  onTimeCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 12 },
-  cardTitle: { fontSize: 14, fontWeight: "600", color: ORANGE_DARK, alignSelf: "flex-start", marginBottom: 10 },
+  onTimeCard: { backgroundColor: ORANGE_SOFT, width: "100%", borderRadius: 20, padding: 15 },
+  
+  onTimeCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  cardTitle: { fontSize: 15, fontWeight: "600", color: ORANGE_DARK },
+  addFoodInlineBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: ORANGE,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 
-  // Calorie Circle
   circleWrapper: { width: 105, height: 105, justifyContent: "center", alignItems: "center" },
   circleTextOverlay: { position: "absolute", justifyContent: "center", alignItems: "center" },
   circleNumber: { fontSize: 22, fontWeight: "bold", color: "#333" },
   circleUnit: { fontSize: 12, color: "#888" },
   calorieRemainingText: { fontSize: 12, color: "#666", marginTop: 10 },
 
-  // Meal groups and rows inside On Time Card
   mealGroup: { marginBottom: 12 },
   mealGroupTitle: { fontSize: 13, fontWeight: "700", color: ORANGE_DARK, marginBottom: 7, marginTop: 2 },
+  
+  // สไตล์สำหรับกล่องข้อความเมื่อยังไม่มีเมนูในมื้อนั้น
+  emptyMealRow: {
+    backgroundColor: "#FFF",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  emptyMealText: {
+    fontSize: 12,
+    color: "#999",
+    fontStyle: "italic",
+    fontWeight: "500",
+  },
+
   mealRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 8, borderRadius: 26, marginBottom: 8 },
   mealThumb: { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
   mealInfo: { flex: 1 },
@@ -483,21 +495,7 @@ const styles = StyleSheet.create({
   checkedCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#E8F5E9", justifyContent: "center", alignItems: "center" },
   mealDoneActions: { flexDirection: "row", alignItems: "center", gap: 6 },
   deleteFoodBtn: { padding: 2 },
-  removeMealBtn: { marginLeft: 8, padding: 2 },
-  addMealRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: ORANGE_BORDER,
-    borderRadius: 25,
-    paddingVertical: 8,
-    marginTop: 2,
-  },
-  addMealText: { fontSize: 12, fontWeight: "600", color: ORANGE, marginLeft: 6 },
 
-  // Macros Zone
   macroSection: { marginTop: 5 },
   macroRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderColor: ORANGE_LIGHT },
   colorDot: { width: 14, height: 14, borderRadius: 7, marginRight: 15 },
@@ -512,69 +510,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderRadius: 15,
     flex: 1,
-    marginTop: 15,
-    marginBottom: 10,
   },
-  arrowButton: {
-    padding: 5,
-  },
-  dateDisplayTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  dateSelectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  calendarCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 20,
-    width: "85%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  calendarModalTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 15,
-  },
-  closeCalendarBtn: {
-    marginTop: 15,
-    paddingVertical: 12,
-    backgroundColor: ORANGE_LIGHT,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  closeCalendarText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: ORANGE_DARK,
-  },
-  chartButton: {
-    backgroundColor: ORANGE,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 15,
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 10,
-    marginTop: 5,
-    minWidth: 54,
-  },
-  chartButtonLabel: { fontSize: 10, fontWeight: "600", color: "#FFFFFF", marginTop: 3 },
+  arrowButton: { padding: 5 },
+  dateDisplayTitle: { fontSize: 16, fontWeight: "bold", color: "#333" },
+  dateSelectButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.4)", justifyContent: "center", alignItems: "center" },
+  calendarCard: { backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, width: "85%", elevation: 5 },
+  calendarModalTitle: { fontSize: 16, fontWeight: "bold", color: "#333", textAlign: "center", marginBottom: 15 },
+  closeCalendarBtn: { marginTop: 15, paddingVertical: 12, backgroundColor: ORANGE_LIGHT, borderRadius: 12, alignItems: "center" },
+  closeCalendarText: { fontSize: 14, fontWeight: "600", color: ORANGE_DARK },
+  chartButton: { backgroundColor: ORANGE, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 15, justifyContent: "center", alignItems: "center", marginLeft: 10 },
+  chartButtonLabel: { fontSize: 10, fontWeight: "600", color: "#FFFFFF", marginTop: 2 },
 });

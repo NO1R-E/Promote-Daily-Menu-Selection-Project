@@ -162,7 +162,7 @@ export default function FoodSearchScreen() {
       </View>
 
       {/* เลือกประเภทมื้ออาหาร: เลือกซ้ำได้เพื่อเพิ่มหลายเมนูในมื้อเดียวกัน */}
-      <Text style={styles.mealTypeHeading}>Meal type</Text>
+      <Text style={styles.mealTypeHeading}>Record meal at</Text>
       <View style={styles.mealTypeContainer}>
         {MEAL_TYPES.map((type) => (
           <TouchableOpacity

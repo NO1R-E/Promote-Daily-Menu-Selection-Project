@@ -13,6 +13,10 @@ export default function AdminLayout() {
       <Stack.Screen name="reports" options={{ title: "Reports queue" }} />
       <Stack.Screen name="users" options={{ title: "Users & bans" }} />
       <Stack.Screen
+        name="ingredient-queue"
+        options={{ title: "Ingredient review" }}
+      />
+      <Stack.Screen
         name="add-ingredient"
         options={{ title: "Add ingredient" }}
       />

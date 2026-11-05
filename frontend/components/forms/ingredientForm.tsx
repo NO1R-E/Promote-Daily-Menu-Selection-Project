@@ -78,13 +78,16 @@ export type IngredientFormProps = {
   submitLabel?: string;
   onSaved?: (ingredientId: number) => void;
   onCancel?: () => void;
-  editIngredientId?: number; // admin only: edit this VERIFIED ingredient instead of creating one
+  editIngredientId?: number; // admin only: edit this ingredient instead of creating one
+  verifyOnSave?: boolean; // admin only (with editIngredientId): also mark it verified when saving
 };
 
 // ข้อความ error ที่ฟังก์ชัน create_ingredient ส่งมา -> ข้อความที่แสดงให้ผู้ใช้
 const ERROR_MESSAGES: Record<string, string> = {
   INGREDIENT_EXISTS_SYSTEM:
-    "This ingredient already exists in the system. Please select it from the System tab instead.",
+    "This ingredient already exists. Search for it in the ingredient list and pick it instead.",
+  INGREDIENT_EXISTS_COMMUNITY:
+    "Someone already added this ingredient. Search for it in the ingredient list and pick it instead.",
   INGREDIENT_EXISTS_MINE: "You already added an ingredient with this name.",
   LIMIT_REACHED: "You've reached the maximum number of custom ingredients.",
   NAME_REQUIRED: "Please enter an ingredient name.",
@@ -114,6 +117,7 @@ export default function IngredientForm({
   onSaved,
   onCancel,
   editIngredientId,
+  verifyOnSave = false,
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
   const isEdit = isAdmin && editIngredientId != null;
@@ -122,11 +126,18 @@ export default function IngredientForm({
   const heading =
     title ??
     (isEdit
-      ? "Edit Ingredient (Admin)"
+      ? verifyOnSave
+        ? "Verify Ingredient (Admin)"
+        : "Edit Ingredient (Admin)"
       : isAdmin
         ? "Add Ingredient (Admin)"
         : "Add Ingredient");
-  const saveLabel = isEdit && submitLabel === "Save" ? "Save changes" : submitLabel;
+  const saveLabel =
+    isEdit && submitLabel === "Save"
+      ? verifyOnSave
+        ? "Save & verify"
+        : "Save changes"
+      : submitLabel;
 
   const [editLoading, setEditLoading] = useState(isEdit);
 
@@ -452,11 +463,14 @@ export default function IngredientForm({
           p_name_th: th || null,
           p_nutrients: rows,
           p_tag_ids: tagIds,
+          p_verify: verifyOnSave,
         });
         if (updErr) throw updErr;
         Alert.alert(
-          "Saved",
-          "Ingredient updated. Existing recipes keep the nutrition they already calculated.",
+          verifyOnSave ? "Verified" : "Saved",
+          verifyOnSave
+            ? "Ingredient verified. Recipes that only use verified ingredients are now verified too."
+            : "Ingredient updated. Existing recipes keep the nutrition they already calculated.",
         );
         onSaved?.(Number(editIngredientId));
         return;

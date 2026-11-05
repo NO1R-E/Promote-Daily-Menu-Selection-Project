@@ -23,6 +23,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { UserIngredientForm } from "./UserIngredientForm";
@@ -48,7 +49,14 @@ export const makeIngredientKey = (source: IngredientSource, id: number) => `${so
 // ชื่อที่แสดง: ใช้อังกฤษก่อน ถ้าไม่มีใช้ไทย (วัตถุดิบของผู้ใช้อาจมีชื่อภาษาเดียว)
 const displayName = (en: string | null, th: string | null) => en || th || "";
 
-type SystemItem = { ingredient_id: number; norm_en: string | null; norm_th: string | null };
+// result row of the search_ingredients function: every ingredient (verified or not), most used first
+type SystemItem = {
+  ingredient_id: number;
+  norm_en: string | null;
+  norm_th: string | null;
+  status: string | null;
+  users_count: number | null;
+};
 
 type NutrientRow = { amount: number | string | null; nutrients: any };
 type MyItem = {
@@ -80,6 +88,13 @@ type Props = {
 
 export default function IngredientPickerSheet({ visible, onClose, picked, onToggle }: Props) {
   const { user, isAdmin } = useAuth();
+  const router = useRouter();
+
+  // open the ingredient info page (close the sheet first, picked items stay in the parent form)
+  const openInfo = (id: number) => {
+    onClose();
+    router.push(`/(app)/ingredient/${id}` as any);
+  };
 
   // admin: id of the verified ingredient being edited (null = not editing)
   const [editId, setEditId] = useState<number | null>(null);
@@ -143,20 +158,12 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     const timer = setTimeout(async () => {
       setSysLoading(true);
       try {
-        let request = supabase
-          .from("ingredients")
-          .select("ingredient_id, norm_en, norm_th")
-          .eq("status", "verified") // ไม่ให้วัตถุดิบที่ยังไม่ยืนยันของผู้ใช้คนอื่นโผล่ในแท็บนี้
-          .order("ingredient_id", { ascending: true })
-          .limit(30);
-
-        // ตัดอักขระที่ทำให้ตัวกรอง or() พัง (, ( ) % _ \) ออกจากคำค้นก่อน
-        const q = sysQuery.trim().replace(/[,()%_\\]/g, " ").trim();
-        if (q) {
-          request = request.or(`norm_en.ilike.%${q}%,norm_th.ilike.%${q}%`);
-        }
-
-        const { data, error } = await request;
+        // all ingredients (verified or not), ordered by how many different users use them
+        const { data, error } = await supabase.rpc("search_ingredients", {
+          p_query: sysQuery.trim(),
+          p_limit: 30,
+          p_offset: 0,
+        });
         if (error) throw error;
 
         setSysError(false);
@@ -271,7 +278,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
               activeOpacity={0.8}
               onPress={() => setTab("system")}
             >
-              <Text style={[styles.tabText, tab === "system" && styles.tabTextActive]}>System</Text>
+              <Text style={[styles.tabText, tab === "system" && styles.tabTextActive]}>All ingredients</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tabBtn, tab === "mine" && styles.tabBtnActive]}
@@ -326,21 +333,42 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                   <Text style={styles.emptyText}>No ingredients found</Text>
                 ) : (
                   sysResults.map((r) => {
-                    const on = isPicked("system", r.ingredient_id);
+                    const verified = r.status === "verified";
+                    const src: IngredientSource = verified ? "system" : "user";
+                    const on = isPicked(src, r.ingredient_id);
                     const name = displayName(r.norm_en, r.norm_th);
                     // แสดงอีกภาษาเป็นบรรทัดรอง (ถ้ามีทั้งสองภาษา)
                     const sub = r.norm_en && r.norm_th ? r.norm_th : null;
+                    const used = Number(r.users_count) || 0;
                     return (
                       <TouchableOpacity
                         key={r.ingredient_id}
                         style={[styles.row, on && styles.rowOn]}
                         activeOpacity={0.8}
-                        onPress={() => onToggle({ source: "system", id: r.ingredient_id, name })}
+                        onPress={() => onToggle({ source: src, id: r.ingredient_id, name })}
                       >
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.rowName}>{name}</Text>
+                          <View style={styles.nameRow}>
+                            <Text style={[styles.rowName, { flexShrink: 1 }]} numberOfLines={1}>
+                              {name}
+                            </Text>
+                            {verified && (
+                              <Ionicons name="checkmark-circle" size={16} color="#34C759" style={{ marginLeft: 6 }} />
+                            )}
+                          </View>
                           {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+                          <Text style={styles.rowSub}>
+                            {used > 0 ? `Used by ${used} ${used === 1 ? "user" : "users"}` : "Not used yet"}
+                            {verified ? "" : " · Unverified"}
+                          </Text>
                         </View>
+                        <TouchableOpacity
+                          style={styles.deleteBtn}
+                          onPress={() => openInfo(r.ingredient_id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color="#8E8E93" />
+                        </TouchableOpacity>
                         {renderEditBtn(r.ingredient_id)}
                         {renderToggleMark(on)}
                       </TouchableOpacity>
@@ -411,6 +439,13 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                           </Text>
                         </View>
 
+                        <TouchableOpacity
+                          style={styles.deleteBtn}
+                          onPress={() => openInfo(it.ingredient_id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="information-circle-outline" size={20} color="#8E8E93" />
+                        </TouchableOpacity>
                         {verified ? (
                           renderEditBtn(it.ingredient_id)
                         ) : (
@@ -529,6 +564,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   rowOn: { backgroundColor: ORANGE_SOFT, borderColor: ORANGE_BORDER },
+  nameRow: { flexDirection: "row", alignItems: "center" },
   rowName: { fontSize: 15, fontWeight: "600", color: "#333" },
   rowSub: { fontSize: 12, color: "#8E8E93", marginTop: 2 },
 

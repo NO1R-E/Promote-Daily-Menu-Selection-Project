@@ -17,6 +17,12 @@ const ITEMS = [
     icon: "people",
   },
   {
+    href: "/(app)/(tabs)/admin/ingredient-queue",
+    label: "Ingredient review",
+    hint: "Popular unverified ingredients to check and verify",
+    icon: "shield-checkmark",
+  },
+  {
     href: "/(app)/(tabs)/admin/add-ingredient",
     label: "Add ingredient",
     hint: "Add to the ingredient database",

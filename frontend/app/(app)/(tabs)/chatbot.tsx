@@ -55,7 +55,7 @@ export default function ChatbotScreen() {
       (m.recommendations ?? []).map((r) => Number(r.recipe_id)),
     ),
   );
-  console.log("ChatbotScreen: images", images);
+  // console.log("ChatbotScreen: images", images);
   const [likeState, setLikeState] = useState<
     Record<string, "asking" | "yes" | "no">
   >({});

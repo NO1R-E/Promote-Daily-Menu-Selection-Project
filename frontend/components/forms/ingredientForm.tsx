@@ -312,8 +312,7 @@ export default function IngredientForm({
       .eq("is_active", true)
       .in("tag_groups.scope", ["ingredient", "both"])
       .neq("group_id", CUISINE_GROUP_ID)
-      .neq("group_id", ALLERGEN_GROUP_ID) // the AI never assigns allergen or diet labels
-      .neq("group_id", dietOn ? DIET_GROUP_ID : -1);
+      .not("tag_name", "ilike", "non-%"); // hidden "Non-" tags are never offered
     if (error) throw error;
     return (data ?? []).map((t: any) => ({
       id: Number(t.tag_id),
@@ -369,17 +368,18 @@ export default function IngredientForm({
       setValues(nextValues);
       setExtraIds(nextExtra);
       setPendingIds([]);
-      // keep what the user already chose in the Diet / Allergen groups; the AI never touches them
-      {
-        const { data: safeTags } = await supabase
+      // the AI now fills every tag group incl. Allergen and Diet; the user reviews them below
+      setTagIds(result.tag_ids);
+      if (dietOn) {
+        // picking a diet tag cancels a previous "None"; no diet tag -> the user must still confirm None
+        const { data: dietTags } = await supabase
           .from("tags")
           .select("tag_id")
-          .in("group_id", [DIET_GROUP_ID, ALLERGEN_GROUP_ID]);
-        const safeIds = new Set(
-          (safeTags ?? []).map((t: any) => Number(t.tag_id)),
-        );
-        const keep = tagIds.filter((id) => safeIds.has(id));
-        setTagIds([...keep, ...result.tag_ids]);
+          .eq("group_id", DIET_GROUP_ID);
+        const dietIds = new Set((dietTags ?? []).map((t: any) => Number(t.tag_id)));
+        if (result.tag_ids.some((id: number) => dietIds.has(id))) {
+          setNoneGroups((prev) => prev.filter((g) => g !== DIET_GROUP_ID));
+        }
       }
       if (result.name && !nameEn.trim()) setNameEn(result.name);
       setAiNote(result.note || "Estimated from your description.");
@@ -586,8 +586,8 @@ export default function IngredientForm({
         )}
         {!!aiNote && (
           <Text style={styles.aiNote}>
-            AI estimate per 100 g — please check the values and tags before
-            saving. {aiNote}
+            AI estimate per 100 g — please check the values, allergen and diet
+            tags before saving. {aiNote}
           </Text>
         )}
       </View>
@@ -599,7 +599,7 @@ export default function IngredientForm({
         </View>
       )}
 
-      {isAdmin ? (
+      {true ? (
         <>
           <Text style={styles.label}>Name (English)</Text>
           <TextInput
@@ -622,7 +622,10 @@ export default function IngredientForm({
             editable={!saving}
           />
           <Text style={styles.helper}>
-            Fill at least one. Existing system names can't be added again.
+            Fill at least one.{" "}
+            {isAdmin
+              ? "Existing system names can't be added again."
+              : "Your ingredient is marked as unverified and only appears in your own list."}
           </Text>
         </>
       ) : (

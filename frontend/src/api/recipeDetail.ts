@@ -20,10 +20,25 @@ export type DetailIngredient = {
   isUser: boolean;
 };
 export type DetailCuisine = { tag_id: number; name: string };
+export type DetailTag = { tag_id: number; name: string; group: string; strength: number | null };
+
+// recipe_features is stored per serving
+export type DetailNutrition = {
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+};
+
 export type RecipeDetail = {
   steps: DetailStep[];
   ingredients: DetailIngredient[];
   cuisine: DetailCuisine[];
+  tags: DetailTag[];
+  nutrition: DetailNutrition | null;
 };
 
 // Old posts (before recipe_steps existed) only have recipe_body: "1. ...\n2. ..."
@@ -45,7 +60,6 @@ async function fetchCuisine(recipeId: number): Promise<DetailCuisine[]> {
     .from("tags")
     .select("tag_id, tag_name")
     .eq("group_id", CUISINE_GROUP);
-    console.log("fetchCuisine", recipeId, "tags:", tags?.length, "error:", error);
   if (error) throw error;
   const names = new Map<number, string>((tags ?? []).map((t: any) => [Number(t.tag_id), t.tag_name]));
   if (names.size === 0) {
@@ -66,8 +80,61 @@ async function fetchCuisine(recipeId: number): Promise<DetailCuisine[]> {
   return (rows ?? []).map((r: any) => ({ tag_id: Number(r.tag_id), name: names.get(Number(r.tag_id)) ?? "" }));
 }
 
+// All tags of the recipe (food group, flavor, texture, ...) except cuisine, which is shown on its own.
+// Grouped by tag group on screen; a failure here must not break the whole post page.
+async function fetchRecipeTags(recipeId: number): Promise<DetailTag[]> {
+  const { data, error } = await supabase
+    .from("recipe_tags")
+    .select("tag_id, strength, tags ( tag_name, group_id, tag_groups ( group_name, sort_order ) )")
+    .eq("recipe_id", recipeId);
+  if (error) {
+    console.warn("[recipe tags]", error.message);
+    return [];
+  }
+  const one = (v: any) => (Array.isArray(v) ? v[0] : v);
+  return (data ?? [])
+    .map((r: any) => {
+      const t = one(r.tags);
+      const g = one(t?.tag_groups);
+      return {
+        tag_id: Number(r.tag_id),
+        name: String(t?.tag_name ?? ""),
+        group: String(g?.group_name ?? "Other"),
+        group_id: Number(t?.group_id ?? 0),
+        order: Number(g?.sort_order ?? t?.group_id ?? 99),
+        strength: r.strength != null ? Number(r.strength) : null,
+      };
+    })
+    .filter((t) => t.name && t.group_id !== CUISINE_GROUP)
+    .sort((a, b) => a.order - b.order || (b.strength ?? 0) - (a.strength ?? 0))
+    .map(({ tag_id, name, group, strength }) => ({ tag_id, name, group, strength }));
+}
+
+async function fetchRecipeNutrition(recipeId: number): Promise<DetailNutrition | null> {
+  const { data, error } = await supabase
+    .from("recipe_features")
+    .select("calories, protein, total_fat, carb, fiber, sugar, sodium")
+    .eq("recipe_id", recipeId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[recipe nutrition]", error.message);
+    return null;
+  }
+  if (!data) return null;
+  const n = (v: any) => Number(v) || 0;
+  return {
+    calories: n(data.calories),
+    protein: n(data.protein),
+    fat: n(data.total_fat),
+    carbs: n(data.carb),
+    fiber: n(data.fiber),
+    sugar: n(data.sugar),
+    sodium: n(data.sodium),
+  };
+}
+
 export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail> {
-  const [stepsRes, ingRes, cuisine] = await Promise.all([
+  const [stepsRes, ingRes, cuisine, tags, nutrition] = await Promise.all([
     supabase
       .from("recipe_steps")
       .select("step_no, description, img")
@@ -81,6 +148,8 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
       .eq("recipe_id", recipeId)
       .order("recipe_ingredient_id", { ascending: true }),
     fetchCuisine(recipeId),
+    fetchRecipeTags(recipeId),
+    fetchRecipeNutrition(recipeId),
   ]);
 
   if (stepsRes.error) throw stepsRes.error;
@@ -98,10 +167,14 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
         ingredient_id: r.ingredient_id,
         name: ing?.norm_en ?? ing?.name_en ?? ing?.clean_en ?? "Unknown ingredient",
         weight_g: r.weight_g,
-        isUser: !!ing?.user_id || ing?.source === "user",
+        // only ingredients a normal user created are "custom". Verified/system ones may also carry a
+        // user_id (the admin who added them), so user_id alone must not decide this.
+        isUser: ing?.source === "user",
       };
     }),
     cuisine,
+    tags,
+    nutrition,
   };
 }
 

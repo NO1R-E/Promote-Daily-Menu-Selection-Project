@@ -18,7 +18,6 @@ function NavigationGate() {
   const router = useRouter();
 
   useEffect(() => {
-    console.log(ban);
     if (loading) return;
     if (!user) router.replace("/(auth)/login");
     else if (ban) router.replace("/suspended");

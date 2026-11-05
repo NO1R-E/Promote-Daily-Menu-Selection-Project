@@ -26,6 +26,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { UserIngredientForm } from "./UserIngredientForm";
+import IngredientForm from "./ingredientForm";
 import { ORANGE, ORANGE_DARK, ORANGE_SOFT, ORANGE_LIGHT, ORANGE_BORDER } from "./ingredientCommon";
 
 // ===== ชนิดข้อมูลที่ใช้ร่วมกับหน้า create-post =====
@@ -52,6 +53,7 @@ type SystemItem = { ingredient_id: number; norm_en: string | null; norm_th: stri
 type NutrientRow = { amount: number | string | null; nutrients: any };
 type MyItem = {
   ingredient_id: number;
+  status: string | null;
   norm_en: string | null;
   norm_th: string | null;
   ingredient_nutrients: NutrientRow[] | null;
@@ -77,7 +79,11 @@ type Props = {
 };
 
 export default function IngredientPickerSheet({ visible, onClose, picked, onToggle }: Props) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
+
+  // admin: id of the verified ingredient being edited (null = not editing)
+  const [editId, setEditId] = useState<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [tab, setTab] = useState<"system" | "mine">("system");
 
@@ -104,8 +110,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
       setMyLoading(true);
       const { data, error } = await supabase
         .from("ingredients")
-        .select("ingredient_id, norm_en, norm_th, ingredient_nutrients(amount, nutrients(nutrient_name))")
-        .eq("status", "unverified")
+        .select("ingredient_id, status, norm_en, norm_th, ingredient_nutrients(amount, nutrients(nutrient_name))")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
@@ -124,6 +129,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     if (visible) {
       setTab("system");
       setMyMode("list");
+      setEditId(null);
       setSysQuery("");
       setMyQuery("");
       loadMine();
@@ -164,12 +170,13 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [sysQuery, tab, visible]);
+  }, [sysQuery, tab, visible, reloadKey]);
 
   // ===== ลบวัตถุดิบของตัวเอง (ผ่านฟังก์ชัน delete_user_ingredient) =====
   const handleDelete = async (item: MyItem) => {
     if (!user) return;
     const name = displayName(item.norm_en, item.norm_th);
+    if (item.status === "verified") return; // system ingredients are never deleted
     try {
       setDeletingId(item.ingredient_id);
 
@@ -223,7 +230,19 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     </View>
   );
 
-  const showFooter = !(tab === "mine" && myMode === "form");
+  const editing = editId !== null;
+  const showFooter = !editing && !(tab === "mine" && myMode === "form");
+
+  const renderEditBtn = (id: number) =>
+    isAdmin ? (
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => setEditId(id)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="create-outline" size={20} color={ORANGE_DARK} />
+      </TouchableOpacity>
+    ) : null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -266,7 +285,26 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
           </View>
 
           {/* ===== เนื้อหาแท็บ System ===== */}
-          {tab === "system" && (
+          {editing && (
+            <ScrollView
+              style={styles.body}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <IngredientForm
+                mode="admin"
+                editIngredientId={editId as number}
+                onCancel={() => setEditId(null)}
+                onSaved={() => {
+                  setEditId(null);
+                  setReloadKey((k) => k + 1);
+                  loadMine();
+                }}
+              />
+            </ScrollView>
+          )}
+
+          {!editing && tab === "system" && (
             <View style={styles.body}>
               <View style={styles.searchBox}>
                 <Ionicons name="search" size={18} color="#8E8E93" />
@@ -303,6 +341,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                           <Text style={styles.rowName}>{name}</Text>
                           {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
                         </View>
+                        {renderEditBtn(r.ingredient_id)}
                         {renderToggleMark(on)}
                       </TouchableOpacity>
                     );
@@ -313,7 +352,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
           )}
 
           {/* ===== เนื้อหาแท็บ My ingredients ===== */}
-          {tab === "mine" && myMode === "list" && (
+          {!editing && tab === "mine" && myMode === "list" && (
             <View style={styles.body}>
               <View style={styles.mineTopRow}>
                 <View style={[styles.searchBox, { flex: 1, marginBottom: 0 }]}>
@@ -352,14 +391,17 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                   <Text style={styles.emptyText}>No matching ingredients</Text>
                 ) : (
                   filteredMine.map((it) => {
-                    const on = isPicked("user", it.ingredient_id);
+                    const verified = it.status === "verified";
+                    // verified rows behave exactly like System-tab rows
+                    const src: IngredientSource = verified ? "system" : "user";
+                    const on = isPicked(src, it.ingredient_id);
                     const name = displayName(it.norm_en, it.norm_th);
                     return (
                       <TouchableOpacity
                         key={it.ingredient_id}
                         style={[styles.row, on && styles.rowOn]}
                         activeOpacity={0.8}
-                        onPress={() => onToggle({ source: "user", id: it.ingredient_id, name })}
+                        onPress={() => onToggle({ source: src, id: it.ingredient_id, name })}
                       >
                         <View style={{ flex: 1 }}>
                           <Text style={styles.rowName}>{name}</Text>
@@ -369,18 +411,22 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                           </Text>
                         </View>
 
-                        <TouchableOpacity
-                          style={styles.deleteBtn}
-                          onPress={() => confirmDelete(it)}
-                          disabled={deletingId !== null}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          {deletingId === it.ingredient_id ? (
-                            <ActivityIndicator size="small" color="#FF3B30" />
-                          ) : (
-                            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                          )}
-                        </TouchableOpacity>
+                        {verified ? (
+                          renderEditBtn(it.ingredient_id)
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.deleteBtn}
+                            onPress={() => confirmDelete(it)}
+                            disabled={deletingId !== null}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            {deletingId === it.ingredient_id ? (
+                              <ActivityIndicator size="small" color="#FF3B30" />
+                            ) : (
+                              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                            )}
+                          </TouchableOpacity>
+                        )}
 
                         {renderToggleMark(on)}
                       </TouchableOpacity>
@@ -392,7 +438,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
           )}
 
           {/* ===== ฟอร์มเพิ่มวัตถุดิบของตัวเอง ===== */}
-          {tab === "mine" && myMode === "form" && (
+          {!editing && tab === "mine" && myMode === "form" && (
             <ScrollView
               style={styles.body}
               showsVerticalScrollIndicator={false}

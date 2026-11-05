@@ -64,8 +64,14 @@ export async function logMeal(
 }
 
 export async function undoLog(recordId: string): Promise<void> {
-  const { error } = await supabase.from("record_item").delete().eq("record_item_id", recordId);
+  // .select() returns the deleted rows: an empty result means RLS blocked it (e.g. a past day)
+  const { data, error } = await supabase
+    .from("record_item")
+    .delete()
+    .eq("record_item_id", recordId)
+    .select("record_item_id");
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Past records can't be changed.");
 }
 
 export async function likeMeal(recipeId: number): Promise<void> {

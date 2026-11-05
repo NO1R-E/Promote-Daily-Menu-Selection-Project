@@ -44,6 +44,7 @@ import {
 } from "./ingredientCommon";
 
 const DIET_GROUP_ID = 7;
+const ALLERGEN_GROUP_ID = 6;
 const DIET_NOTE =
   "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None.";
 const DIET_HINTS: TagHint[] = [
@@ -77,6 +78,7 @@ export type IngredientFormProps = {
   submitLabel?: string;
   onSaved?: (ingredientId: number) => void;
   onCancel?: () => void;
+  editIngredientId?: number; // admin only: edit this VERIFIED ingredient instead of creating one
 };
 
 // ข้อความ error ที่ฟังก์ชัน create_ingredient ส่งมา -> ข้อความที่แสดงให้ผู้ใช้
@@ -94,6 +96,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   TAG_INVALID: "Some selected tags are not allowed.",
   NOT_AUTHENTICATED: "Please log in again.",
   CALORIES_REQUIRED: "Please enter Calories.",
+  FORBIDDEN: "Only admins can edit system ingredients.",
+  INGREDIENT_NOT_FOUND: "This ingredient no longer exists.",
+  ONLY_VERIFIED_EDITABLE: "Only system (verified) ingredients can be edited.",
 };
 
 const getErrorMessage = (error: any): string => {
@@ -108,12 +113,22 @@ export default function IngredientForm({
   submitLabel = "Save",
   onSaved,
   onCancel,
+  editIngredientId,
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
+  const isEdit = isAdmin && editIngredientId != null;
   const { user } = useAuth();
   const { isServerHealthy } = useHealth();
   const heading =
-    title ?? (isAdmin ? "Add Ingredient (Admin)" : "Add Ingredient");
+    title ??
+    (isEdit
+      ? "Edit Ingredient (Admin)"
+      : isAdmin
+        ? "Add Ingredient (Admin)"
+        : "Add Ingredient");
+  const saveLabel = isEdit && submitLabel === "Save" ? "Save changes" : submitLabel;
+
+  const [editLoading, setEditLoading] = useState(isEdit);
 
   const [nutrients, setNutrients] = useState<Nutrient[]>([]);
   const [loadingNutrients, setLoadingNutrients] = useState(true);
@@ -194,6 +209,67 @@ export default function IngredientForm({
       .includes(extraQuery.trim().toLowerCase()),
   );
 
+  // edit mode: load the existing ingredient once the nutrient list is known
+  useEffect(() => {
+    if (!isEdit || nutrients.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      setEditLoading(true);
+      try {
+        const [ing, nut, tg] = await Promise.all([
+          supabase
+            .from("ingredients")
+            .select("norm_en, norm_th, status")
+            .eq("ingredient_id", editIngredientId)
+            .single(),
+          supabase
+            .from("ingredient_nutrients")
+            .select("nutrient_id, amount")
+            .eq("ingredient_id", editIngredientId),
+          supabase
+            .from("ingredient_tags")
+            .select("tag_id, tags(group_id)")
+            .eq("ingredient_id", editIngredientId),
+        ]);
+        if (ing.error) throw ing.error;
+        if (nut.error) throw nut.error;
+        if (tg.error) throw tg.error;
+        if (cancelled) return;
+
+        const coreIds = new Set(coreList.map((n) => n.nutrient_id));
+        const vals: Record<number, string> = {};
+        const extra: number[] = [];
+        (nut.data ?? []).forEach((r: any) => {
+          const id = Number(r.nutrient_id);
+          vals[id] = String(r.amount);
+          if (!coreIds.has(id)) extra.push(id);
+        });
+        const tagRows = (tg.data ?? []) as any[];
+        const ids = tagRows.map((r) => Number(r.tag_id));
+        const hasDiet = tagRows.some((r) => {
+          const t = Array.isArray(r.tags) ? r.tags[0] : r.tags;
+          return Number(t?.group_id) === DIET_GROUP_ID;
+        });
+
+        setNameEn(ing.data?.norm_en ?? "");
+        setNameTh(ing.data?.norm_th ?? "");
+        setValues(vals);
+        setExtraIds(extra);
+        setTagIds(ids);
+        setNoneGroups(hasDiet ? [] : [DIET_GROUP_ID]);
+      } catch (e: any) {
+        console.error("Error loading ingredient:", e?.message || e);
+        Alert.alert("Error", "Couldn't load this ingredient.");
+        onCancel?.();
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, editIngredientId, nutrients]);
+
   const handleChangeValue = (nutrientId: number, text: string) => {
     setValues((prev) => ({ ...prev, [nutrientId]: sanitizeNumber(text) }));
   };
@@ -236,7 +312,8 @@ export default function IngredientForm({
       .eq("is_active", true)
       .in("tag_groups.scope", ["ingredient", "both"])
       .neq("group_id", CUISINE_GROUP_ID)
-      .neq("group_id", dietOn ? DIET_GROUP_ID : -1); // the AI never assigns diet labels
+      .neq("group_id", ALLERGEN_GROUP_ID) // the AI never assigns allergen or diet labels
+      .neq("group_id", dietOn ? DIET_GROUP_ID : -1);
     if (error) throw error;
     return (data ?? []).map((t: any) => ({
       id: Number(t.tag_id),
@@ -292,19 +369,18 @@ export default function IngredientForm({
       setValues(nextValues);
       setExtraIds(nextExtra);
       setPendingIds([]);
-      // keep what the user already chose in the Diet group; the AI never touches it
-      let keep: number[] = [];
-      if (dietOn) {
-        const { data: dietTags } = await supabase
+      // keep what the user already chose in the Diet / Allergen groups; the AI never touches them
+      {
+        const { data: safeTags } = await supabase
           .from("tags")
           .select("tag_id")
-          .eq("group_id", DIET_GROUP_ID);
-        const dietIds = new Set(
-          (dietTags ?? []).map((t: any) => Number(t.tag_id)),
+          .in("group_id", [DIET_GROUP_ID, ALLERGEN_GROUP_ID]);
+        const safeIds = new Set(
+          (safeTags ?? []).map((t: any) => Number(t.tag_id)),
         );
-        keep = tagIds.filter((id) => dietIds.has(id));
+        const keep = tagIds.filter((id) => safeIds.has(id));
+        setTagIds([...keep, ...result.tag_ids]);
       }
-      setTagIds([...keep, ...result.tag_ids]);
       if (result.name && !nameEn.trim()) setNameEn(result.name);
       setAiNote(result.note || "Estimated from your description.");
     } catch (err: any) {
@@ -369,6 +445,23 @@ export default function IngredientForm({
     try {
       setSaving(true);
 
+      if (isEdit) {
+        const { error: updErr } = await supabase.rpc("admin_update_ingredient", {
+          p_ingredient_id: editIngredientId,
+          p_name_en: en || null,
+          p_name_th: th || null,
+          p_nutrients: rows,
+          p_tag_ids: tagIds,
+        });
+        if (updErr) throw updErr;
+        Alert.alert(
+          "Saved",
+          "Ingredient updated. Existing recipes keep the nutrition they already calculated.",
+        );
+        onSaved?.(Number(editIngredientId));
+        return;
+      }
+
       // ฟังก์ชันเดียว: ตรวจชื่อซ้ำ/ค่าสารอาหาร, insert 3 ตาราง (ingredients, ingredient_nutrients, ingredient_tags)
       // ในครั้งเดียว และเช็กเงื่อนไขเลื่อนระดับ (ผู้ใช้ 5 คนขึ้นไปตั้งชื่อเดียวกัน)
       const { data, error } = await supabase.rpc("create_ingredient", {
@@ -394,14 +487,15 @@ export default function IngredientForm({
       onSaved?.(Number(data));
       if (isAdmin) Alert.alert("Success", "Ingredient added successfully");
     } catch (error: any) {
-      console.error("Error saving ingredient:", error?.message || error);
+      // console.log (not console.error) so expected errors like duplicates don't open the red LogBox popup
+      console.log("Error saving ingredient:", error?.message || error);
       Alert.alert("Can't save", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
   };
 
-  const blocked = saving || loadingNutrients || loadError;
+  const blocked = saving || loadingNutrients || loadError || editLoading;
 
   // แถวกรอกสารอาหาร 1 ตัว (ใช้ทั้งรายการหลักและรายการเพิ่มเติม)
   const renderNutrientRow = (n: Nutrient, removable: boolean) => (
@@ -439,7 +533,8 @@ export default function IngredientForm({
     <View style={styles.container}>
       {!!heading && <Text style={styles.title}>{heading}</Text>}
 
-      {/* AI assist */}
+      {/* AI assist (not when editing an existing ingredient) */}
+      {!isEdit && (
       <View style={styles.aiBox}>
         <View style={styles.aiHeader}>
           <Ionicons name="sparkles-outline" size={16} color={ORANGE_DARK} />
@@ -496,6 +591,13 @@ export default function IngredientForm({
           </Text>
         )}
       </View>
+      )}
+
+      {editLoading && (
+        <View style={styles.centerBlock}>
+          <ActivityIndicator size="small" color={ORANGE} />
+        </View>
+      )}
 
       {isAdmin ? (
         <>
@@ -711,7 +813,7 @@ export default function IngredientForm({
           {saving ? (
             <ActivityIndicator size="small" color="#FFF" />
           ) : (
-            <Text style={styles.saveButtonText}>{submitLabel}</Text>
+            <Text style={styles.saveButtonText}>{saveLabel}</Text>
           )}
         </TouchableOpacity>
       </View>

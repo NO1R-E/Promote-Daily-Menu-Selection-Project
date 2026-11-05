@@ -25,7 +25,11 @@ import {
   setLike,
   setSaved,
 } from "@/src/api/forum";
-import { confirmDeletePost, openEditPost } from "@/src/utils/postActions";
+import {
+  confirmAdminDeletePost,
+  confirmDeletePost,
+  openEditPost,
+} from "@/src/utils/postActions";
 import { ForumPost } from "@/src/types/ForumType";
 import { timeAgo } from "@/src/utils/date";
 
@@ -37,7 +41,7 @@ const PAGE_SIZE = 5;
 const normalizeQuery = (s: string) => s.trim().replace(/^#+/, "").trim();
 
 export default function ForumIndex() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("hot");
   const [posts, setPosts] = useState<ForumPost[]>([]);
@@ -275,9 +279,11 @@ export default function ForumIndex() {
     const id = menuPostId;
     setMenuPostId(null);
     if (id === null) return;
+    const mine = posts.find((p) => p.recipe_forum_id === id)?.user_id === user?.id;
+    const confirm = mine ? confirmDeletePost : confirmAdminDeletePost;
     setTimeout(
       () =>
-        confirmDeletePost(id, () =>
+        confirm(id, () =>
           setPosts((prev) => prev.filter((p) => p.recipe_forum_id !== id)),
         ),
       250,
@@ -469,7 +475,7 @@ export default function ForumIndex() {
                       color={item.is_saved ? "#FF7A00" : "#666"}
                     />
                   </TouchableOpacity>
-                  {isMine ? (
+                  {isMine || isAdmin ? (
                     <TouchableOpacity
                       onPress={() => setMenuPostId(item.recipe_forum_id)}
                       style={styles.reportBtn}
@@ -500,6 +506,14 @@ export default function ForumIndex() {
         onEdit={menuEdit}
         onDelete={menuDelete}
         onClose={() => setMenuPostId(null)}
+        canEdit={
+          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id === user?.id
+        }
+        deleteLabel={
+          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id === user?.id
+            ? "Delete post"
+            : "Remove post (admin)"
+        }
       />
 
       <ReportModal

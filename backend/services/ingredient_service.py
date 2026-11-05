@@ -9,13 +9,17 @@ from config import GROQ_LARGE_MODEL
 MAX_DESCRIPTION = 300
 
 LIMITS = {
-    "calories": 900,
+    # keys must match nutrients.nutrient_name in the database
+    "energy": 950,
     "protein": 100,
-    "total_fat": 100,
-    "carb": 100,
+    "tot_fat": 100,
+    "sat_fat": 100,
+    "trans_fat": 100,
+    "carbohydrate": 100,
     "fiber": 100,
     "sugar": 100,
     "sodium": 40000,
+    "cholesterol": 5000,
 }
 DEFAULT_LIMIT = 100000 
 
@@ -63,9 +67,9 @@ def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) ->
             continue
         nutrients[name] = round(x, 2)
 
-    macros = [nutrients.get(k, 0) for k in ("protein", "total_fat", "carb")]
+    macros = [nutrients.get(k, 0) for k in ("protein", "tot_fat", "carbohydrate")]
     if sum(macros) > 105:
-        for k in ("protein", "total_fat", "carb"):
+        for k in ("protein", "tot_fat", "carbohydrate"):
             nutrients.pop(k, None)
 
     allowed_t = set(tag_ids)

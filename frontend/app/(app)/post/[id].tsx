@@ -34,11 +34,15 @@ import { fetchRecipeDetail, RecipeDetail } from "@/src/api/recipeDetail";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ForumPost } from "@/src/types/ForumType";
 import { localDateString, timeAgo } from "@/src/utils/date";
-import { confirmDeletePost, openEditPost } from "@/src/utils/postActions";
+import {
+  confirmAdminDeletePost,
+  confirmDeletePost,
+  openEditPost,
+} from "@/src/utils/postActions";
 
 export default function PostScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const postId = Number(id);
 
@@ -180,6 +184,27 @@ export default function PostScreen() {
   const author = post?.profiles ?? null;
   const recipeId = recipe?.recipe_id ?? null;
   const isMine = !!user && !!post && post.user_id === user.id;
+  const canManage = isMine || isAdmin; // admins get the three-dot menu on every post
+
+  // tags grouped by their tag group, in the order recipeDetail returned them
+  const tagGroups: { group: string; names: string[] }[] = [];
+  (detail?.tags ?? []).forEach((t) => {
+    const g = tagGroups.find((x) => x.group === t.group);
+    if (g) g.names.push(t.name);
+    else tagGroups.push({ group: t.group, names: [t.name] });
+  });
+  const nutrition = detail?.nutrition ?? null;
+  const nutritionRows = nutrition
+    ? [
+        { label: "Calories", value: nutrition.calories, unit: "kcal" },
+        { label: "Protein", value: nutrition.protein, unit: "g" },
+        { label: "Carbs", value: nutrition.carbs, unit: "g" },
+        { label: "Fat", value: nutrition.fat, unit: "g" },
+        { label: "Fiber", value: nutrition.fiber, unit: "g" },
+        { label: "Sugar", value: nutrition.sugar, unit: "g" },
+        { label: "Sodium", value: nutrition.sodium, unit: "mg" },
+      ]
+    : [];
 
   // เมนูสามจุด: รอให้เมนูปิดก่อนค่อยเปิด Alert (iOS เปิดซ้อนกันทันทีไม่ได้)
   const menuEdit = () => {
@@ -191,9 +216,10 @@ export default function PostScreen() {
     setMenuVisible(false);
     if (!post) return;
     const forumId = post.recipe_forum_id;
+    const confirm = isMine ? confirmDeletePost : confirmAdminDeletePost;
     setTimeout(
       () =>
-        confirmDeletePost(forumId, () => {
+        confirm(forumId, () => {
           markForumDirty();
           goBack();
         }),
@@ -312,7 +338,7 @@ export default function PostScreen() {
                     color={post.is_saved ? "#FF7A00" : "#666"}
                   />
                 </TouchableOpacity>
-                {isMine ? (
+                {canManage ? (
                   <TouchableOpacity
                     style={styles.iconBtn}
                     onPress={() => setMenuVisible(true)}
@@ -353,6 +379,40 @@ export default function PostScreen() {
             )}
             {!!post.caption && (
               <Text style={styles.description}>{post.caption}</Text>
+            )}
+
+            {tagGroups.length > 0 && (
+              <View style={styles.tagBlock}>
+                {tagGroups.map((g) => (
+                  <View key={g.group} style={styles.tagGroupRow}>
+                    <Text style={styles.tagGroupLabel}>{g.group}</Text>
+                    <View style={styles.tagGroupChips}>
+                      {g.names.map((n) => (
+                        <View key={n} style={styles.recipeTagChip}>
+                          <Text style={styles.recipeTagText}>{n}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {nutrition && (
+              <View style={styles.nutritionCard}>
+                <Text style={styles.nutritionTitle}>Nutrition · per serving</Text>
+                <View style={styles.nutritionGrid}>
+                  {nutritionRows.map((r) => (
+                    <View key={r.label} style={styles.nutritionCell}>
+                      <Text style={styles.nutritionValue}>
+                        {Math.round(r.value)}
+                        <Text style={styles.nutritionUnit}> {r.unit}</Text>
+                      </Text>
+                      <Text style={styles.nutritionLabel}>{r.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
             )}
 
             <TouchableOpacity
@@ -454,6 +514,8 @@ export default function PostScreen() {
         onEdit={menuEdit}
         onDelete={menuDelete}
         onClose={() => setMenuVisible(false)}
+        canEdit={isMine}
+        deleteLabel={isMine ? "Delete post" : "Remove post (admin)"}
       />
 
       <RecordMealSheet
@@ -599,6 +661,33 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cuisineText: { fontSize: 12, fontWeight: "600", color: "#C96A0A" },
+  tagBlock: { marginBottom: 14, gap: 8 },
+  tagGroupRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  tagGroupLabel: { width: 82, fontSize: 12, fontWeight: "600", color: "#8E8E93", paddingTop: 5 },
+  tagGroupChips: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  recipeTagChip: {
+    backgroundColor: "#FFF5EA",
+    borderWidth: 1,
+    borderColor: "#F6C48F",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  recipeTagText: { fontSize: 12, fontWeight: "600", color: "#C96A0A" },
+  nutritionCard: {
+    backgroundColor: "#FAFAFA",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#EFEFEF",
+    padding: 12,
+    marginBottom: 14,
+  },
+  nutritionTitle: { fontSize: 13, fontWeight: "700", color: "#333", marginBottom: 10 },
+  nutritionGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
+  nutritionCell: { width: "25%", alignItems: "center" },
+  nutritionValue: { fontSize: 16, fontWeight: "700", color: "#C96A0A" },
+  nutritionUnit: { fontSize: 11, fontWeight: "500", color: "#8E8E93" },
+  nutritionLabel: { fontSize: 11, color: "#666", marginTop: 2 },
   stepBlock: { marginBottom: 6 },
   stepNo: {
     fontSize: 13,

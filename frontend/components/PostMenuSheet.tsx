@@ -6,6 +6,8 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
+  canEdit?: boolean; // false for an admin looking at someone else's post: only removal is offered
+  deleteLabel?: string;
 };
 
 export default function PostMenuSheet({
@@ -13,6 +15,8 @@ export default function PostMenuSheet({
   onEdit,
   onDelete,
   onClose,
+  canEdit = true,
+  deleteLabel = "Delete post",
 }: Props) {
   return (
     <Modal
@@ -28,16 +32,20 @@ export default function PostMenuSheet({
           onPress={onClose}
         />
         <View style={styles.card}>
-          <TouchableOpacity
-            style={styles.item}
-            activeOpacity={0.7}
-            onPress={onEdit}
-          >
-            <Ionicons name="create-outline" size={20} color="#FF7A00" />
-            <Text style={styles.editItemText}>Edit post</Text>
-          </TouchableOpacity>
+          {canEdit && (
+            <>
+              <TouchableOpacity
+                style={styles.item}
+                activeOpacity={0.7}
+                onPress={onEdit}
+              >
+                <Ionicons name="create-outline" size={20} color="#FF7A00" />
+                <Text style={styles.editItemText}>Edit post</Text>
+              </TouchableOpacity>
 
-          <View style={styles.divider} />
+              <View style={styles.divider} />
+            </>
+          )}
 
           <TouchableOpacity
             style={styles.item}
@@ -45,7 +53,7 @@ export default function PostMenuSheet({
             onPress={onDelete}
           >
             <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-            <Text style={styles.deleteItemText}>Delete post</Text>
+            <Text style={styles.deleteItemText}>{deleteLabel}</Text>
           </TouchableOpacity>
 
           <View style={styles.divider} />

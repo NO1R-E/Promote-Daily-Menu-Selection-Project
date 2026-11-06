@@ -14,7 +14,12 @@ export async function estimateIngredient(payload: {
   userId: string;
   description: string;
   nutrients: { name: string; unit: string | null }[];
-  tags: { id: number; name: string; group: string | null }[];
+  tags: {
+    id: number;
+    name: string;
+    group: string | null;
+    description?: string | null;
+  }[];
 }): Promise<IngredientEstimate> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

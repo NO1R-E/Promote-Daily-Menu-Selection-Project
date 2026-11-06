@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
+import { Modal, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import {
@@ -25,7 +26,12 @@ import {
 } from "./ingredientCommon";
 
 type Group = { group_id: number; group_name: string };
-type Tag = { tag_id: number; tag_name: string; group_id: number };
+type Tag = {
+  tag_id: number;
+  tag_name: string;
+  group_id: number;
+  description?: string | null;
+};
 
 export type TagHint = { match: RegExp; text: string };
 
@@ -73,6 +79,7 @@ export default function IngredientTagPicker({
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [infoGroup, setInfoGroup] = useState<number | null>(null); // group whose tag meanings are shown
   const [expanded, setExpanded] = useState<number[]>([]); // group_id ที่กางอยู่
 
   const loadTags = async () => {
@@ -82,7 +89,7 @@ export default function IngredientTagPicker({
       // ดึงกลุ่มกับแท็กที่ใช้งานอยู่พร้อมกัน (กรองกลุ่มตาม onlyGroupIds / excludeGroupIds)
       let tagQuery: any = supabase
         .from("tags")
-        .select("tag_id, tag_name, group_id")
+        .select("tag_id, tag_name, group_id, description")
         .eq("is_active", true)
         .order("tag_name", { ascending: true });
 
@@ -264,6 +271,51 @@ export default function IngredientTagPicker({
   return (
     <View>
       {/* สรุปแท็กที่เลือกไว้ (เห็นได้แม้กลุ่มพับอยู่) */}
+      {/* Tag meanings for one group (opened with the info button in the group header) */}
+      <Modal
+        visible={infoGroup != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInfoGroup(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setInfoGroup(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {groups.find((g) => g.group_id === infoGroup)?.group_name ?? ""}
+            </Text>
+            <ScrollView
+              style={{ maxHeight: 420 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {infoGroup != null &&
+                visibleTagsOf(infoGroup).map((tag) => (
+                  <Text key={tag.tag_id} style={styles.modalRow}>
+                    <Text style={styles.modalTagName}>{tag.tag_name}</Text>
+                    {tag.description ? ` — ${tag.description}` : ""}
+                  </Text>
+                ))}
+              {infoGroup != null && isNoneGroup(infoGroup) && (
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalTagName}>None</Text>
+                  {" — no label applies, or you are not sure."}
+                </Text>
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modalClose}
+              activeOpacity={0.85}
+              onPress={() => setInfoGroup(null)}
+            >
+              <Text style={styles.modalCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {selectedTags.length > 0 && !hideSummary && (
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>
@@ -331,6 +383,20 @@ export default function IngredientTagPicker({
                 <View style={styles.countBadge}>
                   <Text style={styles.countBadgeText}>{count}</Text>
                 </View>
+              )}
+              {!isEmpty && (
+                <TouchableOpacity
+                  onPress={() => setInfoGroup(group.group_id)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={{ marginRight: 8 }}
+                  accessibilityLabel={`What do the ${group.group_name} tags mean?`}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={20}
+                    color={ORANGE_DARK}
+                  />
+                </TouchableOpacity>
               )}
               <Text style={styles.groupTotal}>
                 {isEmpty ? "No tags" : items.length}
@@ -432,6 +498,35 @@ export default function IngredientTagPicker({
 
 const styles = StyleSheet.create({
   center: { paddingVertical: 14, alignItems: "center" },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: ORANGE_DARK,
+    marginBottom: 12,
+  },
+  modalRow: { fontSize: 14, color: "#3A3A3C", lineHeight: 20, marginBottom: 10 },
+  modalTagName: { fontWeight: "700", color: "#1C1C1E" },
+  modalClose: {
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: ORANGE,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 6,
+  },
+  modalCloseText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
   errorBox: { padding: 12, backgroundColor: "#FFF3CD", borderRadius: 12 },
   errorText: { color: "#7A5B00", fontSize: 13, marginBottom: 6 },
   retryText: { color: ORANGE_DARK, fontWeight: "700", fontSize: 13 },

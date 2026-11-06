@@ -39,7 +39,6 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // parameterised query (supabase-js), so the value can never change the SQL
   const checkUsernameExists = async (username: string) => {
     const { data, error } = await supabase
       .from("profiles")
@@ -100,7 +99,10 @@ export default function RegisterScreen() {
     if (loading) return;
     const code = token.trim();
     if (!/^\d{6,8}$/.test(code)) {
-      Alert.alert("Verification Failed", "Please enter the code from your email.");
+      Alert.alert(
+        "Verification Failed",
+        "Please enter the code from your email.",
+      );
       return;
     }
     setLoading(true);
@@ -130,7 +132,9 @@ export default function RegisterScreen() {
         {!otpSent ? (
           <>
             <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join and start planning your meals</Text>
+            <Text style={styles.subtitle}>
+              Join and start planning your meals
+            </Text>
 
             <TextInput
               placeholder="Username"
@@ -192,7 +196,13 @@ export default function RegisterScreen() {
               onPress={() => router.push("/login")}
               style={{ marginTop: 20 }}
             >
-              <Text style={{ color: ORANGE_DARK, textAlign: "center", fontWeight: "600" }}>
+              <Text
+                style={{
+                  color: ORANGE_DARK,
+                  textAlign: "center",
+                  fontWeight: "600",
+                }}
+              >
                 Already have an account? Sign In
               </Text>
             </TouchableOpacity>

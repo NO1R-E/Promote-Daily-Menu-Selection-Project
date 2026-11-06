@@ -38,16 +38,20 @@ Return ONLY a JSON object:
 Rules:
 - Use ONLY nutrient names from the allowed list, exactly as written. Units are given in the list.
 - Include only values you can reasonably estimate; omit the rest. Never invent precise-looking numbers.
-- Use ONLY tag_ids from the allowed tag list. Pick a tag only if it clearly applies.
+- Use ONLY tag_ids from the allowed tag list. Each tag is shown as `id: name [group] - meaning`;
+  read the meaning and pick a tag only if it clearly applies.
 - Allergen tags are safety-critical: pick an allergen tag whenever the ingredient is, contains or is
   very likely to contain that allergen (e.g. shrimp paste -> shellfish, oyster sauce -> shellfish,
   fish sauce -> fish, soy sauce -> soy and wheat, peanut sauce -> peanut). When the description is
   vague about a sauce, paste or mix, think about its usual recipe and include the likely allergens.
-- Diet tags (vegan, vegetarian, jay/เจ, halal) are religious/health labels: pick one ONLY when you are
+- Diet tags (Vegan, Vegetarian, Jae/เจ, halal) are religious/health labels: pick one ONLY when you are
   certain from the description (e.g. plain tofu or fresh vegetables -> vegan). Any sauce, paste, stock
   or processed item with unknown ingredients: do NOT pick a diet tag. Never pick vegan or vegetarian
-  if meat, fish, egg, dairy or honey is, or may be, involved. Jay (เจ) requires also no garlic or
-  onion. Halal only if clearly stated or obviously free of pork and alcohol. If unsure, leave the
+  if meat, fish, egg, dairy or honey is, or may be, involved. Jae (เจ) requires also no garlic or
+  onion, and no brand doubt (skip it for sauces, pickles and spice blends). Halal only for items halal
+  by nature (plain plants, eggs, milk, honey, seafood with no pork or alcohol); skip it for sauces,
+  pastes, ferments, pickles and processed foods that depend on certification, and for meat unless
+  stated halal. Follow the meaning shown after each tag. If unsure, leave the
   diet tags out.
 - Mention in "note" which allergen and diet tags you chose and why, in one short sentence.
 - If the text is not a food ingredient, return {"is_ingredient": false}.
@@ -116,7 +120,14 @@ async def estimate_ingredient(
         raise ValueError("EMPTY_DESCRIPTION")
 
     nutrient_lines = "\n".join(f'- {n["name"]} ({n.get("unit") or ""})' for n in nutrients)
-    tag_lines = "\n".join(f'- {t["id"]}: {t["name"]} [{t.get("group", "")}]' for t in tags)
+    def _tag_line(t: dict) -> str:
+        desc = re.sub(r"\s+", " ", t.get("description") or "").strip()[:160]
+        line = f'- {t["id"]}: {t["name"]} [{t.get("group") or ""}]'
+        return f"{line} - {desc}" if desc else line
+
+    tag_lines = "\n".join(_tag_line(t) for t in tags)
+    # print(nutrient_lines)
+    # print(tag_lines)
     user_prompt = (
         f"Allowed nutrients:\n{nutrient_lines}\n\nAllowed tags:\n{tag_lines}\n\n"
         f"Ingredient description:\n<<<{description}>>>"

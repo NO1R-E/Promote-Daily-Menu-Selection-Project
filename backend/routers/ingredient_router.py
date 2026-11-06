@@ -32,6 +32,7 @@ class TagItem(BaseModel):
     id: int
     name: str
     group: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=300)
 
 
 class EstimateRequest(BaseModel):

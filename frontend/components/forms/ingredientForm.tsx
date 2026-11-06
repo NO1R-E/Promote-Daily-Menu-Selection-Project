@@ -28,7 +28,7 @@ import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useHealth } from "@/src/contexts/HealthContext";
 import { estimateIngredient } from "@/src/api/ingredientAi";
-import IngredientTagPicker, { TagHint } from "./IngredientTagPicker";
+import IngredientTagPicker from "./IngredientTagPicker";
 import {
   ORANGE,
   ORANGE_DARK,
@@ -47,24 +47,6 @@ const DIET_GROUP_ID = 7;
 const ALLERGEN_GROUP_ID = 6;
 const DIET_NOTE =
   "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None.";
-const DIET_HINTS: TagHint[] = [
-  {
-    match: /vegan/i,
-    text: "No animal products at all: no meat, fish, egg, dairy or honey.",
-  },
-  {
-    match: /vegetarian/i,
-    text: "No meat or fish. May contain egg and/or dairy.",
-  },
-  {
-    match: /\bj[ae]{1,2}y?\b|jea|เจ/i,
-    text: "Jay (เจ) food: fully plant-based and also free of garlic, onion, leek, chives and other strong-smelling vegetables.",
-  },
-  {
-    match: /halal|ฮาลาล/i,
-    text: "Allowed under Islamic dietary law: no pork or alcohol, and any meat comes from an approved slaughter.",
-  },
-];
 
 type Nutrient = {
   nutrient_id: number;
@@ -319,7 +301,9 @@ export default function IngredientForm({
   const loadAiTags = async () => {
     const { data, error } = await supabase
       .from("tags")
-      .select("tag_id, tag_name, group_id, tag_groups!inner(group_name, scope)")
+      .select(
+        "tag_id, tag_name, description, group_id, tag_groups!inner(group_name, scope)",
+      )
       .eq("is_active", true)
       .in("tag_groups.scope", ["ingredient", "both"])
       .neq("group_id", CUISINE_GROUP_ID)
@@ -329,6 +313,7 @@ export default function IngredientForm({
       id: Number(t.tag_id),
       name: String(t.tag_name),
       group: t.tag_groups?.group_name ?? null,
+      description: t.description ?? null,
     }));
   };
 
@@ -801,7 +786,6 @@ export default function IngredientForm({
         onNoneChange={setNoneGroups}
         hideTagNamePrefix="Non-"
         groupNotes={dietOn ? { [DIET_GROUP_ID]: DIET_NOTE } : undefined}
-        tagHints={dietOn ? DIET_HINTS : undefined}
         onMissingChange={setMissingGroups}
         highlightMissing={showMissing}
       />

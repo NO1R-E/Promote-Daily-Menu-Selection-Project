@@ -29,6 +29,7 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { useHealth } from "@/src/contexts/HealthContext";
 import { estimateIngredient } from "@/src/api/ingredientAi";
 import IngredientTagPicker from "./IngredientTagPicker";
+import { fetchOwnUnits } from "./units";
 import {
   ORANGE,
   ORANGE_DARK,
@@ -47,6 +48,16 @@ const DIET_GROUP_ID = 7;
 const ALLERGEN_GROUP_ID = 6;
 const DIET_NOTE =
   "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None.";
+
+// one editable unit row of this ingredient (egg = 50 g). grams is text while typing
+type UnitRow = {
+  unit_id?: number;
+  name_en: string;
+  name_th: string;
+  grams: string;
+  is_default: boolean;
+};
+const MAX_UNITS_ADMIN = 8; // admins: up to 8; a normal user adds one special unit (its default)
 
 type Nutrient = {
   nutrient_id: number;
@@ -79,6 +90,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   NUTRIENT_OUT_OF_RANGE:
     "Some nutrient values look unrealistic for 100 g. Please check them.",
   TAG_INVALID: "Some selected tags are not allowed.",
+  UNIT_INVALID:
+    "A unit is not valid. Use a short name and a weight between 0.1 and 5000 g.",
+  UNIT_NAME_DUPLICATE:
+    "Unit names must be different, and can't be g, kg, oz, lb, ml, L, tsp, tbsp or cup.",
+  UNIT_IN_USE:
+    "A recipe already uses a unit you removed. Keep that unit (you can change its weight).",
+  TOO_MANY_UNITS:
+    "An ingredient can have only one special unit (admins: up to 8).",
   NOT_AUTHENTICATED: "Please log in again.",
   CALORIES_REQUIRED: "Please enter Calories.",
   FORBIDDEN: "Only admins can edit system ingredients.",
@@ -102,6 +121,7 @@ export default function IngredientForm({
   verifyOnSave = false,
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
+  const MAX_UNITS = isAdmin ? MAX_UNITS_ADMIN : 1;
   const isEdit = isAdmin && editIngredientId != null;
   const { user } = useAuth();
   const { isServerHealthy } = useHealth();
@@ -141,6 +161,7 @@ export default function IngredientForm({
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null); // set => form currently holds an AI estimate
+  const [unitRows, setUnitRows] = useState<UnitRow[]>([]);
 
   // สารอาหารเพิ่มเติม: ที่เลือกมาแสดงบนฟอร์มแล้ว / แผงเลือก / รายการที่ติ๊กไว้ในแผง (ยังไม่กดเพิ่ม)
   const [extraIds, setExtraIds] = useState<number[]>([]);
@@ -209,7 +230,7 @@ export default function IngredientForm({
     (async () => {
       setEditLoading(true);
       try {
-        const [ing, nut, tg] = await Promise.all([
+        const [ing, nut, tg, ownUnits] = await Promise.all([
           supabase
             .from("ingredients")
             .select("norm_en, norm_th, status")
@@ -223,6 +244,7 @@ export default function IngredientForm({
             .from("ingredient_tags")
             .select("tag_id, tags(group_id)")
             .eq("ingredient_id", editIngredientId),
+          fetchOwnUnits(Number(editIngredientId)),
         ]);
         if (ing.error) throw ing.error;
         if (nut.error) throw nut.error;
@@ -250,6 +272,15 @@ export default function IngredientForm({
         setExtraIds(extra);
         setTagIds(ids);
         setNoneGroups(hasDiet ? [] : [DIET_GROUP_ID]);
+        setUnitRows(
+          ownUnits.map((u) => ({
+            unit_id: u.unit_id,
+            name_en: u.name_en,
+            name_th: u.name_th ?? "",
+            grams: String(u.factor),
+            is_default: u.is_default,
+          })),
+        );
       } catch (e: any) {
         console.error("Error loading ingredient:", e?.message || e);
         Alert.alert("Error", "Couldn't load this ingredient.");
@@ -378,6 +409,15 @@ export default function IngredientForm({
         }
       }
       if (result.name && !nameEn.trim()) setNameEn(result.name);
+      // countable ingredients (egg, orange...) come with their unit weights; the user can edit them
+      setUnitRows(
+        (result.units ?? []).slice(0, MAX_UNITS).map((u, i) => ({
+          name_en: u.name_en,
+          name_th: u.name_th ?? "",
+          grams: String(u.grams),
+          is_default: i === 0,
+        })),
+      );
       setAiNote(result.note || "Estimated from your description.");
     } catch (err: any) {
       Alert.alert(
@@ -438,6 +478,42 @@ export default function IngredientForm({
       return;
     }
 
+    // units: rows left completely empty are ignored, the others must be valid
+    const unitPayload: {
+      unit_id?: number;
+      name_en: string;
+      name_th: string | null;
+      grams: number;
+      is_default: boolean;
+    }[] = [];
+    for (const r of unitRows) {
+      const name = r.name_en.trim();
+      const g = r.grams.trim();
+      if (name === "" && g === "") continue;
+      const grams = Number(g);
+      if (name === "" || !(grams >= 0.1 && grams <= 5000)) {
+        Alert.alert(
+          "Warning",
+          "Each unit needs a name and a weight between 0.1 and 5000 g.",
+        );
+        return;
+      }
+      unitPayload.push({
+        unit_id: r.unit_id,
+        name_en: name,
+        name_th: r.name_th.trim() || null,
+        grams,
+        is_default: r.is_default,
+      });
+    }
+    if (
+      new Set(unitPayload.map((u) => u.name_en.toLowerCase())).size !==
+      unitPayload.length
+    ) {
+      Alert.alert("Warning", "Unit names must be different from each other.");
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -451,6 +527,11 @@ export default function IngredientForm({
           p_verify: verifyOnSave,
         });
         if (updErr) throw updErr;
+        const { error: unitErr } = await supabase.rpc("set_ingredient_units", {
+          p_ingredient_id: editIngredientId,
+          p_units: unitPayload,
+        });
+        if (unitErr) throw unitErr;
         Alert.alert(
           verifyOnSave ? "Verified" : "Saved",
           verifyOnSave
@@ -472,6 +553,22 @@ export default function IngredientForm({
 
       if (error) throw error;
 
+      // the ingredient is saved; its units go in a second call (a failure here must not hide that)
+      if (unitPayload.length > 0) {
+        const { error: unitErr } = await supabase.rpc("set_ingredient_units", {
+          p_ingredient_id: Number(data),
+          p_units: unitPayload,
+        });
+        if (unitErr) {
+          console.log("Error saving units:", unitErr.message);
+          Alert.alert(
+            "Ingredient saved",
+            `But its units were not saved. ${getErrorMessage(unitErr).replace("Failed to add ingredient", "Please try again later.")}`,
+          );
+        }
+      }
+
+      setUnitRows([]);
       setNameEn("");
       setNameTh("");
       setValues({});
@@ -771,6 +868,112 @@ export default function IngredientForm({
         </>
       )}
 
+      <Text style={[styles.label, { marginTop: 18 }]}>Units (optional)</Text>
+      <Text style={styles.helper}>
+        {isAdmin ? "Special units for things people count instead of weigh. " : "One special unit for things people count instead of weigh. "}
+        e.g. 1 egg = 50 g, so a recipe can say "2 egg" and we save 100 g. It is
+        shown with the usual units (g, kg, tbsp...) when people use this ingredient.
+      </Text>
+      {unitRows.map((r, i) => (
+        <View key={i} style={styles.unitBox}>
+          <View style={styles.unitLine}>
+            <TextInput
+              style={[styles.input, styles.unitName]}
+              value={r.name_en}
+              onChangeText={(t) =>
+                setUnitRows((prev) =>
+                  prev.map((v, idx) => (idx === i ? { ...v, name_en: t } : v)),
+                )
+              }
+              placeholder="unit, e.g. egg"
+              placeholderTextColor="#999"
+              maxLength={30}
+              editable={!saving}
+            />
+            <TextInput
+              style={[styles.input, styles.unitGrams]}
+              value={r.grams}
+              onChangeText={(t) =>
+                setUnitRows((prev) =>
+                  prev.map((v, idx) =>
+                    idx === i ? { ...v, grams: sanitizeNumber(t) } : v,
+                  ),
+                )
+              }
+              placeholder="50"
+              placeholderTextColor="#999"
+              keyboardType="decimal-pad"
+              editable={!saving}
+            />
+            <Text style={styles.unitText}>g</Text>
+            <TouchableOpacity
+              onPress={() =>
+                setUnitRows((prev) => prev.filter((_, idx) => idx !== i))
+              }
+              disabled={saving}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={22} color="#FF3B30" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.unitLine}>
+            <TextInput
+              style={[styles.input, styles.unitName]}
+              value={r.name_th}
+              onChangeText={(t) =>
+                setUnitRows((prev) =>
+                  prev.map((v, idx) => (idx === i ? { ...v, name_th: t } : v)),
+                )
+              }
+              placeholder="ชื่อไทย เช่น ฟอง (ไม่บังคับ)"
+              placeholderTextColor="#999"
+              maxLength={30}
+              editable={!saving}
+            />
+            <TouchableOpacity
+              style={styles.defaultRow}
+              onPress={() =>
+                setUnitRows((prev) =>
+                  prev.map((v, idx) => ({
+                    ...v,
+                    is_default: idx === i ? !v.is_default : false,
+                  })),
+                )
+              }
+              disabled={saving}
+            >
+              <Ionicons
+                name={r.is_default ? "checkbox" : "square-outline"}
+                size={20}
+                color={r.is_default ? ORANGE : "#C7C7CC"}
+              />
+              <Text style={styles.defaultText}>Default</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+      {unitRows.length < MAX_UNITS && (
+        <TouchableOpacity
+          style={styles.addMoreBtn}
+          activeOpacity={0.8}
+          disabled={saving}
+          onPress={() =>
+            setUnitRows((prev) => [
+              ...prev,
+              {
+                name_en: "",
+                name_th: "",
+                grams: "",
+                is_default: prev.length === 0,
+              },
+            ])
+          }
+        >
+          <Ionicons name="add-circle-outline" size={18} color={ORANGE_DARK} />
+          <Text style={styles.addMoreText}>Add unit</Text>
+        </TouchableOpacity>
+      )}
+
       <Text style={[styles.label, { marginTop: 18 }]}>Tags</Text>
       <Text style={styles.helper}>
         Tap a group to open it, then mark the tags that apply (optional).
@@ -984,6 +1187,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   confirmExtraText: { fontSize: 14, fontWeight: "700", color: ORANGE_DARK },
+
+  unitBox: {
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: ORANGE_BORDER,
+    backgroundColor: ORANGE_LIGHT,
+    marginBottom: 8,
+  },
+  unitLine: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  unitName: { flex: 1, height: 42, fontSize: 14 },
+  unitGrams: { width: 80, height: 42, fontSize: 14, textAlign: "right" },
+  defaultRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  defaultText: { fontSize: 13, color: "#3A3A3C" },
 
   buttonRow: { flexDirection: "row", marginTop: 22 },
   button: {

@@ -5,6 +5,7 @@ export type IngredientEstimate = {
   name: string;
   nutrients: Record<string, number>;
   tag_ids: number[];
+  units: { name_en: string; name_th: string | null; grams: number }[];
   note: string;
 };
 

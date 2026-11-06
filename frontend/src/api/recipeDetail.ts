@@ -17,8 +17,26 @@ export type DetailIngredient = {
   ingredient_id: number;
   name: string;
   weight_g: number | null;
+  qty: number | null; // what the author typed (null on older posts)
+  unit_id: number | null;
+  unit: string | null; // name of that unit, e.g. "egg", "tbsp", "g"
   isUser: boolean;
 };
+
+// "2 egg (100 g)", "1 tbsp (17.7 g)", "100 g"
+export function formatIngredientAmount(i: {
+  weight_g: number | null;
+  qty: number | null;
+  unit: string | null;
+}): string {
+  const round = (n: number) => String(Math.round(n * 10) / 10);
+  const grams = i.weight_g != null && i.weight_g > 0 ? `${round(Number(i.weight_g))} g` : "";
+  if (i.qty != null && i.unit && i.unit !== "g") {
+    const typed = `${round(Number(i.qty))} ${i.unit}`;
+    return grams ? `${typed} (${grams})` : typed;
+  }
+  return grams;
+}
 export type DetailCuisine = { tag_id: number; name: string };
 export type DetailTag = { tag_id: number; name: string; group: string; strength: number | null };
 
@@ -143,7 +161,7 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
     supabase
       .from("recipe_ingredients")
       .select(
-        "ingredient_id, weight_g, ingredients ( name_en, norm_en, clean_en, source, user_id )",
+        "ingredient_id, weight_g, qty, unit_id, units ( name_en ), ingredients ( name_en, norm_en, clean_en, source, user_id )",
       )
       .eq("recipe_id", recipeId)
       .order("recipe_ingredient_id", { ascending: true }),
@@ -163,7 +181,11 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
     })),
     ingredients: (ingRes.data ?? []).map((r: any) => {
       const ing = Array.isArray(r.ingredients) ? r.ingredients[0] : r.ingredients;
+      const un = Array.isArray(r.units) ? r.units[0] : r.units;
       return {
+        qty: r.qty != null ? Number(r.qty) : null,
+        unit_id: r.unit_id != null ? Number(r.unit_id) : null,
+        unit: un?.name_en ?? null,
         ingredient_id: r.ingredient_id,
         name: ing?.norm_en ?? ing?.name_en ?? ing?.clean_en ?? "Unknown ingredient",
         weight_g: r.weight_g,
@@ -220,14 +242,25 @@ export async function fetchPostForEdit(
     steps,
     ingredients: detail.ingredients.map((i) => {
       const source = (i.isUser ? "user" : SYSTEM_SOURCE) as any;
+      // saved with a unit -> show exactly what the author typed; older posts only have grams
+      const typed = i.unit_id != null && i.qty != null ? i.qty : i.weight_g;
       return {
         key: makeIngredientKey(source, i.ingredient_id as any),
         source,
         id: i.ingredient_id as any,
         name: i.name,
-        weight_g: i.weight_g != null ? String(i.weight_g) : "",
+        weight_g: typed != null ? String(typed) : "",
       };
     }),
+    unitIds: Object.fromEntries(
+      detail.ingredients.map((i) => [
+        makeIngredientKey(
+          (i.isUser ? "user" : SYSTEM_SOURCE) as any,
+          i.ingredient_id as any,
+        ),
+        i.unit_id != null ? i.unit_id : -1, // -1 = grams only (older post)
+      ]),
+    ),
     cuisineTagIds: detail.cuisine.map((c) => c.tag_id),
   };
 }

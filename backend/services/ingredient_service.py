@@ -21,6 +21,7 @@ LIMITS = {
     "sodium": 40000,
     "cholesterol": 5000,
 }
+UNIVERSAL_UNIT_NAMES = {"g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "cup"}
 DEFAULT_LIMIT = 100000 
 
 SYSTEM_PROMPT = """You are a nutrition database assistant. The user describes ONE food ingredient
@@ -32,6 +33,7 @@ Return ONLY a JSON object:
   "name": "short ingredient name, same language as the user",
   "nutrients": { "<nutrient_name>": <number per 100 g>, ... },
   "tag_ids": [<tag_id>, ...],
+  "units": [{"name_en": "egg", "name_th": "ฟอง", "grams": 50}],
   "note": "one short sentence about what you assumed (cooked/raw, brand, etc.)"
 }
 
@@ -40,6 +42,11 @@ Rules:
 - Include only values you can reasonably estimate; omit the rest. Never invent precise-looking numbers.
 - Use ONLY tag_ids from the allowed tag list. Each tag is shown as `id: name [group] - meaning`;
   read the meaning and pick a tag only if it clearly applies.
+- "units" is ONLY for ingredients people count or scoop instead of weighing (egg, orange, apple, garlic
+  clove, banana, bread slice, chili...). Give 1-3 common units with the typical EDIBLE weight in grams
+  of one such unit (egg = 50, not counting the shell). Never use g, kg, oz, lb, ml, l, tsp, tbsp or cup
+  as a unit name. For ingredients that are normally weighed (pork, rice, flour, oil, sauces) return
+  "units": [].
 - Allergen tags are safety-critical: pick an allergen tag whenever the ingredient is, contains or is
   very likely to contain that allergen (e.g. shrimp paste -> shellfish, oyster sauce -> shellfish,
   fish sauce -> fish, soy sauce -> soy and wheat, peanut sauce -> peanut). When the description is
@@ -70,7 +77,7 @@ def _num(v) -> Optional[float]:
 def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) -> dict:
     """Keep only well-formed, in-range values. Pure function (easy to test)."""
     if not isinstance(raw, dict) or raw.get("is_ingredient") is False:
-        return {"is_ingredient": False, "name": "", "nutrients": {}, "tag_ids": [], "note": ""}
+        return {"is_ingredient": False, "name": "", "nutrients": {}, "tag_ids": [], "units": [], "note": ""}
 
     allowed_n = set(nutrient_names)
     nutrients: Dict[str, float] = {}
@@ -87,6 +94,29 @@ def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) ->
         for k in ("protein", "tot_fat", "carbohydrate"):
             nutrients.pop(k, None)
 
+    units: List[dict] = []
+    seen_units = set()
+    raw_units = raw.get("units")
+    for u in (raw_units if isinstance(raw_units, list) else [])[:6]:
+        if not isinstance(u, dict):
+            continue
+        uname = re.sub(r"\s+", " ", str(u.get("name_en") or "")).strip()[:30]
+        key = uname.lower()
+        grams = _num(u.get("grams"))
+        if (
+            not uname
+            or key in seen_units
+            or key in UNIVERSAL_UNIT_NAMES
+            or grams is None
+            or not (0.1 <= grams <= 2000)
+        ):
+            continue
+        seen_units.add(key)
+        uth = re.sub(r"\s+", " ", str(u.get("name_th") or "")).strip()[:30]
+        units.append({"name_en": uname, "name_th": uth or None, "grams": round(grams, 1)})
+        if len(units) == 3:
+            break
+
     allowed_t = set(tag_ids)
     picked: List[int] = []
     for t in raw.get("tag_ids") or []:
@@ -102,6 +132,7 @@ def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) ->
         "name": str(raw.get("name") or "").strip()[:80],
         "nutrients": nutrients,
         "tag_ids": picked,
+        "units": units,
         "note": str(raw.get("note") or "").strip()[:200],
     }
 

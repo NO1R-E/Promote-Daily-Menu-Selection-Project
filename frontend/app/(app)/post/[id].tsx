@@ -30,7 +30,11 @@ import {
   TodayLog,
   undoLog,
 } from "@/src/api/record";
-import { fetchRecipeDetail, RecipeDetail } from "@/src/api/recipeDetail";
+import {
+  fetchRecipeDetail,
+  formatIngredientAmount,
+  RecipeDetail,
+} from "@/src/api/recipeDetail";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ForumPost } from "@/src/types/ForumType";
 import { localDateString, timeAgo } from "@/src/utils/date";
@@ -448,7 +452,7 @@ export default function PostScreen() {
               detail.ingredients.map((ing, i) => (
                 <Text key={i} style={styles.bodyText}>
                   • {ing.name}
-                  {ing.weight_g ? ` — ${ing.weight_g}g` : ""}
+                  {formatIngredientAmount(ing) ? ` — ${formatIngredientAmount(ing)}` : ""}
                   {ing.isUser ? "  (custom)" : ""}
                 </Text>
               ))

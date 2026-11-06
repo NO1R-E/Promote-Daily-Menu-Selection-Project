@@ -2,7 +2,7 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { supabase } from "@/src/config/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { decode } from "base64-arraybuffer";
 import IngredientPickerSheet, {
@@ -15,7 +15,22 @@ import {
   CUISINE_GROUP_ID,
   sanitizeNumber,
 } from "@/components/forms/ingredientCommon";
-import { fetchDensity, isVolume, toGrams, Unit, UNITS } from "./units";
+import UnitEditorModal from "./UnitEditorModal";
+import UnitDropdown from "./UnitDropdown";
+import {
+  DbUnit,
+  MAX_UNITS_PER_INGREDIENT,
+  addIngredientUnit,
+  deleteIngredientUnit,
+  updateIngredientUnit,
+  IngredientOwner,
+  fetchDensity,
+  fetchIngredientOwners,
+  fetchUnits,
+  gramsFor,
+  isGramUnit,
+  unitLabel,
+} from "./units";
 import {
   Alert,
   ScrollView,
@@ -48,6 +63,8 @@ export type RecipeFormInitial = {
   ingredients: PickedIngredient[];
   images: FormImage[];
   cuisineTagIds: number[];
+  // unit chosen per ingredient key when editing (-1 = plain grams of an older post)
+  unitIds?: Record<string, number>;
 };
 
 type Props = {
@@ -74,7 +91,7 @@ export default function RecipeForm({
   onSubmit,
 }: Props) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [caption, setCaption] = useState(initial?.caption ?? "");
@@ -96,28 +113,127 @@ export default function RecipeForm({
   const [isPickerVisible, setIsPickerVisible] = useState(false);
   // เปิดเมื่อกดโพสต์แล้วมีวัตถุดิบที่ยังไม่กรองน้ำหนัก (ใช้ไฮไลต์ช่องนั้นเป็นสีแดง)
   const [weightError, setWeightError] = useState(false);
-  // Unit per ingredient (amount in weight_g field is in this unit). Converted to grams on save.
-  const [units, setUnits] = useState<Record<string, Unit>>({});
+  // Units come from the database: the ingredient's own units (egg, clove...) plus the universal ones
+  // (g, kg, tbsp...). What is typed in ing.weight_g is an amount in the chosen unit; the grams are
+  // computed here for the preview and again on the server when the post is saved.
+  const [unitMap, setUnitMap] = useState<Record<string, DbUnit[]>>({});
+  const [unitIds, setUnitIds] = useState<Record<string, number>>(
+    initial?.unitIds ?? {},
+  );
   const densityRef = useRef<Record<string, number>>({});
+  const [, setDensityTick] = useState(0); // re-render once densities (for "≈ g" labels) are known
+  // unit pop-up: adding a unit to an ingredient, or editing one the user created (admins: any)
+  const [unitEditor, setUnitEditor] = useState<{
+    ing: PickedIngredient;
+    unit?: DbUnit;
+  } | null>(null);
 
-  const unitOf = (ing: PickedIngredient): Unit => units[ing.key] ?? "g";
-  const gramsOf = (ing: PickedIngredient) =>
-    toGrams(
-      parseFloat(ing.weight_g) || 0,
-      unitOf(ing),
-      densityRef.current[String(ing.id)] ?? 1,
+  const [owners, setOwners] = useState<Record<string, IngredientOwner>>({});
+  const ownCount = (ing: PickedIngredient) =>
+    unitsOf(ing).filter((u) => u.ingredient_id !== null).length;
+  // units are part of the ingredient: only its owner (while unverified) and admins can change them
+  const canEditUnits = (ing: PickedIngredient) => {
+    if (isAdmin) return true;
+    const o = owners[String(ing.id)];
+    return !!o && !!user?.id && o.user_id === user.id && o.status === "unverified";
+  };
+  const canManage = (ing: PickedIngredient, u: DbUnit | undefined) =>
+    !!u && u.ingredient_id !== null && canEditUnits(ing);
+
+  // reload the units of one ingredient after one was added / edited / removed
+  const reloadUnits = async (ing: PickedIngredient, selectId?: number) => {
+    const map = await fetchUnits([Number(ing.id)]);
+    setUnitMap((prev) => ({ ...prev, ...map }));
+    setUnitIds((prev) => {
+      const next = { ...prev };
+      if (selectId !== undefined) next[ing.key] = selectId;
+      else if (
+        next[ing.key] !== undefined &&
+        next[ing.key] !== -1 &&
+        !(map[String(ing.id)] ?? []).some((u) => u.unit_id === next[ing.key])
+      )
+        delete next[ing.key]; // the selected unit was removed -> back to the default
+      return next;
+    });
+  };
+
+  const unitsOf = (ing: PickedIngredient): DbUnit[] =>
+    unitMap[String(ing.id)] ?? [];
+  const unitOf = (ing: PickedIngredient): DbUnit | undefined => {
+    const list = unitsOf(ing);
+    const chosen = unitIds[ing.key];
+    if (chosen === -1) return list.find(isGramUnit); // older post saved in grams only
+    return (
+      list.find((u) => u.unit_id === chosen) ??
+      list.find((u) => u.is_default) ??
+      list.find(isGramUnit)
     );
+  };
+  const gramsOf = (ing: PickedIngredient) => {
+    const amount = parseFloat(ing.weight_g) || 0;
+    const u = unitOf(ing);
+    return u
+      ? gramsFor(amount, u, densityRef.current[String(ing.id)] ?? 1)
+      : amount;
+  };
 
-  const changeUnit = (ing: PickedIngredient, unit: Unit) => {
-    setUnits((prev) => ({ ...prev, [ing.key]: unit }));
+  const changeUnit = (ing: PickedIngredient, u: DbUnit) => {
+    setUnitIds((prev) => ({ ...prev, [ing.key]: u.unit_id }));
     const id = String(ing.id);
-    if (isVolume(unit) && densityRef.current[id] === undefined) {
+    if (u.kind === "volume" && densityRef.current[id] === undefined) {
       fetchDensity(Number(ing.id)).then((d) => {
         densityRef.current[id] = d;
-        setUnits((prev) => ({ ...prev })); // re-render the "≈ g" preview
+        setUnitIds((prev) => ({ ...prev })); // re-render the "≈ g" preview
       });
     }
   };
+
+  // load the units of every ingredient in the list (once per ingredient)
+  const ingredientIdsKey = ingredients.map((i) => String(i.id)).join(",");
+  useEffect(() => {
+    const need = ingredients
+      .map((i) => Number(i.id))
+      .filter((id) => unitMap[String(id)] === undefined);
+    if (need.length === 0) return;
+    let cancelled = false;
+    fetchIngredientOwners(need)
+      .then((o) => !cancelled && setOwners((prev) => ({ ...prev, ...o })))
+      .catch(() => {});
+    fetchUnits(need)
+      .then((map) => {
+        if (cancelled) return;
+        setUnitMap((prev) => ({ ...prev, ...map }));
+        // densities, so volume units can show their grams in the drop-down
+        Promise.all(
+          need.map(async (id) => {
+            if (densityRef.current[String(id)] === undefined)
+              densityRef.current[String(id)] = await fetchDensity(id);
+          }),
+        ).then(() => !cancelled && setDensityTick((t) => t + 1));
+        // an ingredient with a default unit (egg) starts at 1 of it
+        setIngredients((prev) =>
+          prev.map((ing) => {
+            const def = map[String(ing.id)]?.find((u) => u.is_default);
+            return def && ing.weight_g === "" && unitIds[ing.key] === undefined
+              ? { ...ing, weight_g: "1" }
+              : ing;
+          }),
+        );
+      })
+      .catch((e) => {
+        console.log("Loading units failed:", e?.message || e);
+        if (cancelled) return;
+        // fall back to plain grams
+        setUnitMap((prev) => {
+          const next = { ...prev };
+          need.forEach((id) => (next[String(id)] = []));
+          return next;
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ingredientIdsKey]);
 
   // แท็ก Cuisine/Culture ของสูตร (เลือกที่นี่ ไม่ได้เลือกตอนเพิ่มวัตถุดิบ)
   const [cuisineTagIds, setCuisineTagIds] = useState<number[]>(
@@ -278,7 +394,16 @@ export default function RecipeForm({
       setWeightError(true);
       Alert.alert(
         "Missing Ingredient Amount",
-        `Please enter the amount (in grams) for "${ingredientWithoutWeight.name}".`,
+        `Please enter the amount for "${ingredientWithoutWeight.name}".`,
+      );
+      return;
+    }
+
+    // units must be loaded, otherwise "2 egg" could be saved as 2 grams
+    if (ingredients.some((ing) => unitMap[String(ing.id)] === undefined)) {
+      Alert.alert(
+        "Please wait",
+        "The units are still loading. Try again in a moment.",
       );
       return;
     }
@@ -326,13 +451,16 @@ export default function RecipeForm({
       // make sure densities are known for every ingredient entered in a volume unit
       for (const ing of ingredients) {
         const id = String(ing.id);
-        if (isVolume(unitOf(ing)) && densityRef.current[id] === undefined) {
+        if (unitOf(ing)?.kind === "volume" && densityRef.current[id] === undefined) {
           densityRef.current[id] = await fetchDensity(Number(ing.id));
         }
       }
-      // always saved in grams
+      // saved as what the user typed (qty + unit_id) AND the grams. The server recomputes the grams
+      // from qty x unit, so weight_g here is only a fallback for an older database function.
       const parsedIngredients = ingredients.map((ing) => ({
         ingredient_id: ing.id,
+        qty: parseFloat(ing.weight_g),
+        unit_id: unitOf(ing)?.unit_id ?? null,
         weight_g: Math.round(gramsOf(ing) * 10) / 10,
       }));
 
@@ -477,6 +605,18 @@ export default function RecipeForm({
                     <Text style={styles.myBadge}>My ingredient</Text>
                   )}
                 </View>
+                {/* ingredient info page; this form stays open underneath, so nothing typed is lost */}
+                <TouchableOpacity
+                  onPress={() => router.push(`/(app)/ingredient/${ing.id}` as any)}
+                  disabled={loading}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={22}
+                    color="#C96A0A"
+                  />
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() =>
                     setIngredients((prev) => prev.filter((_, idx) => idx !== i))
@@ -513,28 +653,50 @@ export default function RecipeForm({
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={styles.unitRow}
                 >
-                  {UNITS.map((u) => {
-                    const on = u.unit === unit;
-                    return (
+                  <UnitDropdown
+                    units={unitsOf(ing)}
+                    selected={unit}
+                    density={densityRef.current[String(ing.id)] ?? 1}
+                    title={ing.name}
+                    loading={unitMap[String(ing.id)] === undefined}
+                    disabled={loading}
+                    onSelect={(u) => changeUnit(ing, u)}
+                  />
+                  {canManage(ing, unit) && (
+                    <TouchableOpacity
+                      style={styles.unitChipAction}
+                      onPress={() => setUnitEditor({ ing, unit })}
+                      disabled={loading}
+                    >
+                      <Ionicons name="pencil" size={13} color="#C96A0A" />
+                    </TouchableOpacity>
+                  )}
+                  {unitMap[String(ing.id)] !== undefined &&
+                    // only the ingredient's owner / admins; owners get ONE special unit (the default)
+                    canEditUnits(ing) &&
+                    (isAdmin
+                      ? ownCount(ing) < MAX_UNITS_PER_INGREDIENT
+                      : ownCount(ing) === 0) && (
                       <TouchableOpacity
-                        key={u.unit}
-                        style={[styles.unitChip, on && styles.unitChipOn]}
-                        onPress={() => changeUnit(ing, u.unit)}
+                        style={styles.unitChipAction}
+                        onPress={() => setUnitEditor({ ing })}
                         disabled={loading}
                       >
-                        <Text style={on ? styles.unitTextOn : styles.unitText}>
-                          {u.label}
-                        </Text>
+                        <Ionicons name="add" size={14} color="#C96A0A" />
+                        <Text style={styles.unitText}> unit</Text>
                       </TouchableOpacity>
-                    );
-                  })}
+                    )}
                 </ScrollView>
               </View>
 
-              {unit !== "g" && grams > 0 && (
+              {unit && !isGramUnit(unit) && grams > 0 && (
                 <Text style={styles.gramHint}>
                   ≈ {Math.round(grams * 10) / 10} g will be saved
-                  {isVolume(unit) ? " (estimated from density)" : ""}
+                  {unit.kind === "volume"
+                    ? " (estimated from density)"
+                    : unit.kind === "piece"
+                      ? " (about)"
+                      : ""}
                 </Text>
               )}
             </View>
@@ -649,6 +811,42 @@ export default function RecipeForm({
         picked={ingredients}
         onToggle={toggleIngredient}
       />
+
+      <UnitEditorModal
+        visible={unitEditor !== null}
+        mode="ingredient"
+        subject={unitEditor?.ing.name}
+        initial={
+          unitEditor?.unit
+            ? {
+                nameEn: unitEditor.unit.name_en,
+                nameTh: unitEditor.unit.name_th ?? "",
+                value: unitEditor.unit.factor,
+              }
+            : undefined
+        }
+        onClose={() => setUnitEditor(null)}
+        onSave={async (v) => {
+          if (!unitEditor) return;
+          const { ing, unit: editing } = unitEditor;
+          if (editing) {
+            await updateIngredientUnit(editing.unit_id, v.nameEn, v.nameTh, v.value);
+            await reloadUnits(ing, editing.unit_id);
+          } else {
+            const newId = await addIngredientUnit(Number(ing.id), v.nameEn, v.nameTh, v.value);
+            await reloadUnits(ing, newId); // use it right away
+          }
+        }}
+        onDelete={
+          unitEditor?.unit
+            ? async () => {
+                const { ing, unit: editing } = unitEditor;
+                await deleteIngredientUnit(editing!.unit_id);
+                await reloadUnits(ing);
+              }
+            : undefined
+        }
+      />
     </>
   );
 }
@@ -758,6 +956,16 @@ const styles = StyleSheet.create({
   unitChipOn: { backgroundColor: "#F28E2B", borderColor: "#F28E2B" },
   unitText: { fontSize: 13, color: "#C96A0A", fontWeight: "600" },
   unitTextOn: { fontSize: 13, color: "#FFFFFF", fontWeight: "700" },
+  unitChipAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#F6C48F",
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+  },
   gramHint: { fontSize: 12, color: "#888", marginTop: 6 },
   myBadge: { fontSize: 11, fontWeight: "600", color: "#C96A0A", marginTop: 2 },
   addIngredientBtn: {

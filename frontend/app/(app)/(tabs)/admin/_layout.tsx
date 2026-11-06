@@ -20,7 +20,6 @@ export default function AdminLayout() {
         name="add-ingredient"
         options={{ title: "Add ingredient" }}
       />
-      <Stack.Screen name="units" options={{ title: "Shared units" }} />
     </Stack>
   );
 }

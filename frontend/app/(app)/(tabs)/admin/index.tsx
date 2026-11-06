@@ -28,12 +28,6 @@ const ITEMS = [
     hint: "Add to the ingredient database",
     icon: "nutrition",
   },
-  {
-    href: "/(app)/(tabs)/admin/units",
-    label: "Shared units",
-    hint: "Add, edit or remove g, kg, tbsp and other shared units",
-    icon: "scale",
-  },
 ] as const;
 
 export default function AdminHub() {

@@ -184,55 +184,6 @@ export async function deleteIngredientUnit(unitId: number): Promise<void> {
   if (error) throw error;
 }
 
-// ----- admin: the shared units (g, kg, tbsp ...) -----
-export type UniversalUnit = {
-  unit_id: number;
-  name_en: string;
-  name_th: string | null;
-  kind: "weight" | "volume";
-  factor: number;
-  is_system: boolean;
-  used_count: number;
-};
-
-export async function fetchUniversalUnits(): Promise<UniversalUnit[]> {
-  const { data, error } = await supabase.rpc("admin_list_universal_units");
-  if (error) throw error;
-  return (data ?? []).map((r: any) => ({
-    unit_id: Number(r.unit_id),
-    name_en: String(r.name_en),
-    name_th: r.name_th ?? null,
-    kind: r.kind,
-    factor: Number(r.factor),
-    is_system: !!r.is_system,
-    used_count: Number(r.used_count),
-  }));
-}
-
-export async function saveUniversalUnit(args: {
-  unitId: number | null;
-  nameEn: string;
-  nameTh: string;
-  kind: "weight" | "volume";
-  factor: number;
-}): Promise<void> {
-  const { error } = await supabase.rpc("admin_save_universal_unit", {
-    p_unit_id: args.unitId,
-    p_name_en: args.nameEn,
-    p_name_th: args.nameTh.trim() || null,
-    p_kind: args.kind,
-    p_factor: args.factor,
-  });
-  if (error) throw error;
-}
-
-export async function deleteUniversalUnit(unitId: number): Promise<void> {
-  const { error } = await supabase.rpc("admin_delete_universal_unit", {
-    p_unit_id: unitId,
-  });
-  if (error) throw error;
-}
-
 // ---------------------------------------------------------------------------
 // Old client-side units (kept so nothing else that imports them breaks)
 // ---------------------------------------------------------------------------

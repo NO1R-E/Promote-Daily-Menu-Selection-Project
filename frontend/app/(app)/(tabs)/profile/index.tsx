@@ -23,13 +23,13 @@ export default function ProfileScreen() {
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const username = profile?.username || "User";
-  const displayName = profile?.display_name || "";
+  const username = profile?.username || ""; // login name: shown, never editable here
+  const displayName = profile?.display_name || username || "User"; // the name people see
 
   const avatarUri = profile?.avatar_url || DEFAULT_AVATAR;
 
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
-  const [newUsername, setNewUsername] = useState("");
+  const [newName, setNewName] = useState(""); // edited display name
 
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
@@ -83,10 +83,10 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleUpdateUsername = async () => {
+  const handleUpdateDisplayName = async () => {
     if (!user) return;
-    if (!newUsername.trim()) {
-      Alert.alert("Warning", "Please enter a username");
+    if (!newName.trim()) {
+      Alert.alert("Warning", "Please enter a display name");
       return;
     }
 
@@ -94,17 +94,17 @@ export default function ProfileScreen() {
       setUpdating(true);
       const { error } = await supabase
         .from("profiles")
-        .update({ username: newUsername, updated_at: new Date() })
+        .update({ display_name: newName.trim().slice(0, 30), updated_at: new Date().toISOString() })
         .eq("profile_id", user.id);
 
       if (error) throw error;
 
       await refreshUserData();
       setIsEditModalVisible(false);
-      Alert.alert("Success", "Username updated successfully");
+      Alert.alert("Success", "Display name updated");
     } catch (error: any) {
       console.error("Error updating profile:", error.message);
-      Alert.alert("Error", "Failed to update username");
+      Alert.alert("Error", "Failed to update display name");
     } finally {
       setUpdating(false);
     }
@@ -160,8 +160,8 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.textContainer}>
-            <Text style={styles.displayNameText}>{username}</Text>
-            {!!displayName && <Text style={styles.usernameText}>@{displayName}</Text>}
+            <Text style={styles.displayNameText}>{displayName}</Text>
+            {!!username && <Text style={styles.usernameText}>@{username}</Text>}
           </View>
         </View>
 
@@ -170,7 +170,7 @@ export default function ProfileScreen() {
           style={styles.editButton}
           activeOpacity={0.75}
           onPress={() => {
-            setNewUsername(username);
+            setNewName(profile?.display_name || "");
             setIsEditModalVisible(true);
           }}
         >
@@ -230,15 +230,15 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit Username</Text>
+            <Text style={styles.modalTitle}>Edit Display Name</Text>
 
             <TextInput
               style={styles.input}
-              value={newUsername}
-              onChangeText={setNewUsername}
-              placeholder="Enter new username"
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Enter your display name"
               placeholderTextColor="#999"
-              autoCapitalize="none"
+              maxLength={30}
             />
 
             <View style={styles.modalButtonContainer}>
@@ -256,7 +256,7 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 activeOpacity={0.85}
-                onPress={handleUpdateUsername}
+                onPress={handleUpdateDisplayName}
                 disabled={updating}
               >
                 {updating ? (

@@ -1,0 +1,292 @@
+// Log a plain ingredient (e.g. "rice, 1 cup") in the food diary.
+// Search an ingredient -> type the amount -> pick a unit (drop-down shows grams) -> Save.
+// The server turns qty + unit into grams (log_ingredient) and the nutrition comes from the ingredient.
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "@/src/config/supabase";
+import {
+  fetchDensity,
+  ingredientLogErrorMessage,
+  logIngredient,
+  MEAL_LABEL,
+  type MealType,
+} from "@/src/api/record";
+import { DbUnit, fetchUnits, gramsFor } from "@/components/forms/units";
+import UnitDropdown from "@/components/forms/UnitDropdown";
+
+type Found = {
+  ingredient_id: number;
+  norm_en: string | null;
+  norm_th: string | null;
+  status: string;
+};
+
+type Props = {
+  mealType: MealType;
+  date: string; // YYYY-MM-DD
+  onSaved: () => void;
+};
+
+const ORANGE = "#F28E2B";
+const nameOf = (i: Found) => i.norm_en || i.norm_th || "Ingredient";
+
+export default function IngredientLogPanel({ mealType, date, onSaved }: Props) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Found[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const [picked, setPicked] = useState<Found | null>(null);
+  const [units, setUnits] = useState<DbUnit[]>([]);
+  const [unit, setUnit] = useState<DbUnit | undefined>();
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [density, setDensity] = useState(1);
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // search as the user types (short delay so we don't call the server for every key)
+  useEffect(() => {
+    if (picked) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data, error } = await supabase.rpc("search_ingredients", {
+          p_query: query.trim(),
+          p_limit: 30,
+          p_offset: 0,
+        });
+        if (error) throw error;
+        if (!cancelled) setResults((data as Found[]) ?? []);
+      } catch (e) {
+        if (!cancelled) setResults([]);
+        console.error("Ingredient search failed:", e);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, picked]);
+
+  const pick = async (ing: Found) => {
+    setPicked(ing);
+    setAmount("");
+    setUnits([]);
+    setUnit(undefined);
+    setUnitsLoading(true);
+    try {
+      const [byId, dens] = await Promise.all([
+        fetchUnits([ing.ingredient_id]),
+        fetchDensity(ing.ingredient_id),
+      ]);
+      const list = byId[String(ing.ingredient_id)] ?? [];
+      setUnits(list);
+      setDensity(dens);
+      // the ingredient's own (default) unit first, otherwise the first shared unit (grams)
+      setUnit(list[0]);
+    } catch (e) {
+      console.error("Could not load units:", e);
+      Alert.alert("Error", "Could not load the units of this ingredient.");
+    } finally {
+      setUnitsLoading(false);
+    }
+  };
+
+  const qty = Number(amount.replace(",", "."));
+  const grams = useMemo(
+    () => (unit && qty > 0 ? gramsFor(qty, unit, density) : 0),
+    [unit, qty, density],
+  );
+
+  const save = async () => {
+    if (!picked || !unit) return;
+    if (!(qty > 0) || qty > 100000) {
+      Alert.alert("Amount", "Enter an amount greater than 0.");
+      return;
+    }
+    try {
+      setSaving(true);
+      await logIngredient(picked.ingredient_id, qty, unit.unit_id, date, mealType);
+      Alert.alert("Saved", `${nameOf(picked)} added to ${MEAL_LABEL[mealType]}.`);
+      onSaved();
+    } catch (e: any) {
+      console.error("logIngredient failed:", e);
+      Alert.alert("Error", ingredientLogErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // step 2: amount + unit
+  if (picked) {
+    return (
+      <View style={styles.pickedCard}>
+        <View style={styles.pickedHeader}>
+          <Text style={styles.pickedName} numberOfLines={2}>
+            {nameOf(picked)}
+          </Text>
+          <TouchableOpacity onPress={() => setPicked(null)} hitSlop={8}>
+            <Text style={styles.change}>Change</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.label}>Amount</Text>
+        <View style={styles.amountRow}>
+          <TextInput
+            style={styles.amountInput}
+            value={amount}
+            onChangeText={setAmount}
+            placeholder="e.g. 1"
+            keyboardType="decimal-pad"
+            maxLength={8}
+          />
+          <View style={{ flex: 1 }}>
+            <UnitDropdown
+              units={units}
+              selected={unit}
+              density={density}
+              title={nameOf(picked)}
+              loading={unitsLoading}
+              onSelect={setUnit}
+            />
+          </View>
+        </View>
+
+        {grams > 0 && (
+          <Text style={styles.gramsHint}>≈ {Math.round(grams * 10) / 10} g</Text>
+        )}
+
+        <TouchableOpacity
+          style={[styles.saveBtn, (saving || !unit || !(qty > 0)) && { opacity: 0.5 }]}
+          disabled={saving || !unit || !(qty > 0)}
+          onPress={save}
+        >
+          {saving ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text style={styles.saveText}>Add to {MEAL_LABEL[mealType]}</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // step 1: search
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={20} color="#8E8E93" style={{ marginRight: 8 }} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search an ingredient (rice, egg, milk...)"
+          value={query}
+          onChangeText={setQuery}
+          returnKeyType="search"
+        />
+        {query !== "" && (
+          <TouchableOpacity onPress={() => setQuery("")}>
+            <Ionicons name="close-circle" size={20} color="#8E8E93" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {searching && results.length === 0 ? (
+        <ActivityIndicator style={{ marginTop: 30 }} color={ORANGE} />
+      ) : (
+        <FlatList
+          data={results}
+          keyExtractor={(i) => String(i.ingredient_id)}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: 20 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.row} onPress={() => pick(item)}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowName}>{nameOf(item)}</Text>
+                {item.norm_en && item.norm_th ? (
+                  <Text style={styles.rowSub}>{item.norm_th}</Text>
+                ) : null}
+              </View>
+              {item.status !== "verified" && (
+                <Text style={styles.unverified}>Unverified</Text>
+              )}
+              <Ionicons name="chevron-forward" size={20} color="#CCC" />
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {query.trim() ? "No ingredient found." : "Type to search ingredients."}
+            </Text>
+          }
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F2F2F7",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 15,
+  },
+  searchInput: { flex: 1, fontSize: 16, color: "#1A1A1A" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8F9FA",
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  rowName: { fontSize: 16, fontWeight: "600", color: "#333" },
+  rowSub: { fontSize: 13, color: "#8E8E93", marginTop: 2 },
+  unverified: { fontSize: 11, color: "#C96A0A", marginRight: 8 },
+  empty: { textAlign: "center", marginTop: 40, color: "#8E8E93", fontSize: 15 },
+
+  pickedCard: { backgroundColor: "#FFF8F0", borderRadius: 16, padding: 16 },
+  pickedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  pickedName: { flex: 1, fontSize: 18, fontWeight: "700", color: "#333", marginRight: 10 },
+  change: { color: ORANGE, fontWeight: "600" },
+  label: { fontSize: 13, fontWeight: "600", color: "#555", marginBottom: 6 },
+  amountRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  amountInput: {
+    width: 100,
+    backgroundColor: "#FFF",
+    borderWidth: 1,
+    borderColor: "#E5E5EA",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+  },
+  gramsHint: { marginTop: 8, color: "#8E8E93", fontSize: 13 },
+  saveBtn: {
+    marginTop: 18,
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  saveText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+});

@@ -51,7 +51,11 @@ export type DetailNutrition = {
   sodium: number;
 };
 
+// Allergens and diet labels come from recipe_features (they are filters, not preference tags)
+export type DetailFilters = { allergens: string[]; diets: string[] };
+
 export type RecipeDetail = {
+  filters: DetailFilters | null;
   steps: DetailStep[];
   ingredients: DetailIngredient[];
   cuisine: DetailCuisine[];
@@ -128,6 +132,60 @@ async function fetchRecipeTags(recipeId: number): Promise<DetailTag[]> {
     .map(({ tag_id, name, group, strength }) => ({ tag_id, name, group, strength }));
 }
 
+// recipe_features.allergen_tag_ids = allergens some ingredient contains ("Contains egg" ...).
+// recipe_features.diet_any_tag_ids   = diet tags carried by ANY ingredient, so it holds both "Vegan" and
+// "Non-Vegan" for a dish with meat. A diet label is only true when its "Non-" opposite is missing.
+const toIds = (v: any): number[] => {
+  let arr = v;
+  if (typeof arr === "string") {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(arr) ? arr.map(Number).filter((n) => Number.isFinite(n)) : [];
+};
+
+async function fetchRecipeFilters(recipeId: number): Promise<DetailFilters | null> {
+  const { data, error } = await supabase
+    .from("recipe_features")
+    .select("allergen_tag_ids, diet_any_tag_ids")
+    .eq("recipe_id", recipeId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[recipe filters]", error.message);
+    return null;
+  }
+  if (!data) return null;
+  const allergenIds = toIds(data.allergen_tag_ids);
+  const dietIds = toIds(data.diet_any_tag_ids);
+  const ids = Array.from(new Set([...allergenIds, ...dietIds]));
+  if (ids.length === 0) return { allergens: [], diets: [] };
+
+  const { data: tags, error: tErr } = await supabase
+    .from("tags")
+    .select("tag_id, tag_name")
+    .in("tag_id", ids);
+  if (tErr) {
+    console.warn("[recipe filters tags]", tErr.message);
+    return null;
+  }
+  const name = new Map<number, string>((tags ?? []).map((t: any) => [Number(t.tag_id), String(t.tag_name)]));
+
+  const allergens = allergenIds
+    .map((id) => name.get(id) ?? "")
+    .filter(Boolean)
+    .map((n) => n.replace(/^contains\s+/i, ""))
+    .map((n) => n.charAt(0).toUpperCase() + n.slice(1));
+
+  const present = new Set(dietIds.map((id) => (name.get(id) ?? "").toLowerCase()));
+  const diets = ["Vegan", "Vegetarian", "Halal", "Jae"].filter(
+    (p) => present.has(p.toLowerCase()) && !present.has(`non-${p.toLowerCase()}`),
+  );
+  return { allergens, diets };
+}
+
 async function fetchRecipeNutrition(recipeId: number): Promise<DetailNutrition | null> {
   const { data, error } = await supabase
     .from("recipe_features")
@@ -152,7 +210,7 @@ async function fetchRecipeNutrition(recipeId: number): Promise<DetailNutrition |
 }
 
 export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail> {
-  const [stepsRes, ingRes, cuisine, tags, nutrition] = await Promise.all([
+  const [stepsRes, ingRes, cuisine, tags, nutrition, filters] = await Promise.all([
     supabase
       .from("recipe_steps")
       .select("step_no, description, img")
@@ -168,6 +226,7 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
     fetchCuisine(recipeId),
     fetchRecipeTags(recipeId),
     fetchRecipeNutrition(recipeId),
+    fetchRecipeFilters(recipeId),
   ]);
 
   if (stepsRes.error) throw stepsRes.error;
@@ -197,6 +256,7 @@ export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail>
     cuisine,
     tags,
     nutrition,
+    filters,
   };
 }
 

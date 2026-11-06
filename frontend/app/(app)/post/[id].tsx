@@ -402,6 +402,39 @@ export default function PostScreen() {
               </View>
             )}
 
+            {detail?.filters && (
+              <View style={styles.tagBlock}>
+                <View style={styles.tagGroupRow}>
+                  <Text style={styles.tagGroupLabel}>Contains</Text>
+                  <View style={styles.tagGroupChips}>
+                    {detail.filters.allergens.length > 0 ? (
+                      detail.filters.allergens.map((n) => (
+                        <View key={n} style={styles.allergenChip}>
+                          <Text style={styles.allergenText}>{n}</Text>
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={styles.filterNone}>
+                        No allergens found in the ingredient labels
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                {detail.filters.diets.length > 0 && (
+                  <View style={styles.tagGroupRow}>
+                    <Text style={styles.tagGroupLabel}>Diet</Text>
+                    <View style={styles.tagGroupChips}>
+                      {detail.filters.diets.map((n) => (
+                        <View key={n} style={styles.recipeTagChip}>
+                          <Text style={styles.recipeTagText}>{n}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             {nutrition && (
               <View style={styles.nutritionCard}>
                 <Text style={styles.nutritionTitle}>Nutrition · per serving</Text>
@@ -678,6 +711,16 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   recipeTagText: { fontSize: 12, fontWeight: "600", color: "#C96A0A" },
+  allergenChip: {
+    backgroundColor: "#FFEDEB",
+    borderWidth: 1,
+    borderColor: "#F5B5AE",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  allergenText: { fontSize: 12, fontWeight: "600", color: "#B3261E" },
+  filterNone: { fontSize: 12, color: "#8E8E93", paddingTop: 5 },
   nutritionCard: {
     backgroundColor: "#FAFAFA",
     borderRadius: 12,

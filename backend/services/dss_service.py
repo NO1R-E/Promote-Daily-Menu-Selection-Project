@@ -50,15 +50,25 @@ async def calculate_meal_recommendations(
     recent = await _recent_ids(user_id)
     exclude = sorted(set(session_exclude) | set(recent))
 
-    rows, focus = [], None
+    rows, focus, fallback = [], None, []
+    unfiltered_done = False
     if rotate:
         for tag in (await _liked_main_tags(user_id))[:MAX_FOCUS_TRIES]:
             rows = await _rpc("recommend_meals", params(exclude, tag["tag_id"]))
             if rows:
                 focus = tag
                 break
+            if not unfiltered_done:
+                # a food-group filter only NARROWS the candidates: if nothing is left without it,
+                # nothing is left with it either -> stop here instead of running the slow query again
+                unfiltered_done = True
+                fallback = await _rpc("recommend_meals", params(exclude, None))
+                if not fallback:
+                    break
     if not rows:                                    # ไม่มีสูตรตรงหมวดที่ชอบ -> ไม่จำกัดหมวด
-        rows = await _rpc("recommend_meals", params(exclude, None))
+        rows = fallback
+        if not rows and not unfiltered_done:
+            rows = await _rpc("recommend_meals", params(exclude, None))
     if not rows and recent:                         # สูตรเหลือน้อยจนหมด -> ผ่อนกฎ 3 วัน
         rows = await _rpc("recommend_meals", params(session_exclude, None))
 

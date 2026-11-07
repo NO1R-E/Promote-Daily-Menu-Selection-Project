@@ -19,7 +19,8 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     }
     return (await res.json()) as T;
   } catch (err: any) {
-    if (err.name === "AbortError") {
+    // Expo's fetch words an abort as "Fetch request has been canceled" (name is not always AbortError)
+    if (err.name === "AbortError" || /cancel|abort/i.test(String(err.message))) {
       throw new Error("The server took too long to respond. Try again.");
     }
     throw err;

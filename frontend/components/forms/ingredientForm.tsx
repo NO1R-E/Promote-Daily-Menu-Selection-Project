@@ -47,7 +47,40 @@ import {
 const DIET_GROUP_ID = 7;
 const ALLERGEN_GROUP_ID = 6;
 const DIET_NOTE =
-  "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None.";
+  "Only pick a diet label if you are sure. Other people rely on these labels for religious or health reasons. If you are not sure, choose None: the ingredient is then treated as not suitable for any diet (Non-Vegan, Non-Vegetarian, ...), which keeps recipes from being labelled wrongly.";
+
+// every diet the ingredient does not qualify for gets its "Non-..." tag (closed world: no label = not suitable)
+// vegan implies vegetarian, and jae implies both
+const dietKey = (n: string) => n.trim().toLowerCase().replace(/^non-/, "");
+const isJae = (k: string) => /jae|เจ/.test(k);
+async function withDietOpposites(ids: number[]): Promise<number[]> {
+  const { data, error } = await supabase
+    .from("tags")
+    .select("tag_id, tag_name")
+    .eq("group_id", DIET_GROUP_ID);
+  if (error) throw error;
+  const diet = (data ?? []).map((t: any) => ({
+    id: Number(t.tag_id),
+    name: String(t.tag_name),
+  }));
+  const isNon = (n: string) => /^non-/i.test(n.trim());
+  const nonIds = new Set(diet.filter((t) => isNon(t.name)).map((t) => t.id));
+  const base = ids.filter((id) => !nonIds.has(id));
+  const have = new Set(
+    diet
+      .filter((t) => !isNon(t.name) && base.includes(t.id))
+      .map((t) => dietKey(t.name)),
+  );
+  const qualifies = (k: string) =>
+    have.has(k) ||
+    (k === "vegetarian" && ([...have].some((h) => h === "vegan" || isJae(h)))) ||
+    (k === "vegan" && [...have].some(isJae)) ||
+    (isJae(k) && [...have].some(isJae));
+  const add = diet
+    .filter((t) => isNon(t.name) && !qualifies(dietKey(t.name)))
+    .map((t) => t.id);
+  return [...base, ...add];
+}
 
 // one editable unit row of this ingredient (egg = 50 g). grams is text while typing
 type UnitRow = {
@@ -242,7 +275,7 @@ export default function IngredientForm({
             .eq("ingredient_id", editIngredientId),
           supabase
             .from("ingredient_tags")
-            .select("tag_id, tags(group_id)")
+            .select("tag_id, tags(group_id, tag_name)")
             .eq("ingredient_id", editIngredientId),
           fetchOwnUnits(Number(editIngredientId)),
         ]);
@@ -263,7 +296,10 @@ export default function IngredientForm({
         const ids = tagRows.map((r) => Number(r.tag_id));
         const hasDiet = tagRows.some((r) => {
           const t = Array.isArray(r.tags) ? r.tags[0] : r.tags;
-          return Number(t?.group_id) === DIET_GROUP_ID;
+          return (
+            Number(t?.group_id) === DIET_GROUP_ID &&
+            !/^non-/i.test(String(t?.tag_name ?? ""))
+          );
         });
 
         setNameEn(ing.data?.norm_en ?? "");
@@ -338,7 +374,7 @@ export default function IngredientForm({
       .eq("is_active", true)
       .in("tag_groups.scope", ["ingredient", "both"])
       .neq("group_id", CUISINE_GROUP_ID)
-      .not("tag_name", "ilike", "non-%"); // hidden "Non-" tags are never offered
+      .not("tag_name", "ilike", "non-%"); // "Non-" tags are added automatically on save, never chosen
     if (error) throw error;
     return (data ?? []).map((t: any) => ({
       id: Number(t.tag_id),
@@ -516,6 +552,7 @@ export default function IngredientForm({
 
     try {
       setSaving(true);
+      const finalTagIds = dietOn ? await withDietOpposites(tagIds) : tagIds;
 
       if (isEdit) {
         const { error: updErr } = await supabase.rpc("admin_update_ingredient", {
@@ -523,7 +560,7 @@ export default function IngredientForm({
           p_name_en: en || null,
           p_name_th: th || null,
           p_nutrients: rows,
-          p_tag_ids: tagIds,
+          p_tag_ids: finalTagIds,
           p_verify: verifyOnSave,
         });
         if (updErr) throw updErr;
@@ -548,7 +585,7 @@ export default function IngredientForm({
         p_name_en: en || null,
         p_name_th: th || null,
         p_nutrients: rows,
-        p_tag_ids: tagIds,
+        p_tag_ids: finalTagIds,
       });
 
       if (error) throw error;

@@ -74,7 +74,20 @@ def _num(v) -> Optional[float]:
     return x if math.isfinite(x) and x >= 0 else None
 
 
-def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) -> dict:
+def _drop_opposites(picked: List[int], names: Dict[int, str]) -> List[int]:
+    """If both 'Vegetarian' and 'Non-Vegetarian' were picked, keep the Non- one (the safe side)."""
+    def key(i: int) -> str:
+        return re.sub(r"^non-", "", (names.get(i) or "").strip().lower())
+    non_keys = {key(i) for i in picked if (names.get(i) or "").strip().lower().startswith("non-")}
+    return [
+        i for i in picked
+        if (names.get(i) or "").strip().lower().startswith("non-") or key(i) not in non_keys
+    ]
+
+
+def validate_result(
+    raw: dict, nutrient_names: List[str], tag_ids: List[int], tag_names: Optional[Dict[int, str]] = None
+) -> dict:
     """Keep only well-formed, in-range values. Pure function (easy to test)."""
     if not isinstance(raw, dict) or raw.get("is_ingredient") is False:
         return {"is_ingredient": False, "name": "", "nutrients": {}, "tag_ids": [], "units": [], "note": ""}
@@ -126,6 +139,7 @@ def validate_result(raw: dict, nutrient_names: List[str], tag_ids: List[int]) ->
             continue
         if t in allowed_t and t not in picked:
             picked.append(t)
+    picked = _drop_opposites(picked, tag_names or {})
 
     return {
         "is_ingredient": True,
@@ -178,5 +192,8 @@ async def estimate_ingredient(
         raise ValueError("BAD_MODEL_OUTPUT")
 
     return validate_result(
-        raw, [n["name"] for n in nutrients], [int(t["id"]) for t in tags]
+        raw,
+        [n["name"] for n in nutrients],
+        [int(t["id"]) for t in tags],
+        {int(t["id"]): str(t["name"]) for t in tags},
     )

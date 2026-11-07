@@ -57,6 +57,14 @@ type Props = {
   highlightMissing?: boolean; // ขอบแดงกลุ่มที่ยังไม่ได้เลือก (ใช้หลังกด Save แล้วไม่ผ่าน)
 };
 
+// "Non-Vegetarian" is shown as "Not vegetarian" (the tag name in the database is unchanged)
+const tagLabel = (name: string) => {
+  const m = /^non-(.+)$/i.exec(name.trim());
+  if (!m) return name;
+  const rest = m[1];
+  return "Not " + rest.charAt(0).toLowerCase() + rest.slice(1);
+};
+
 export default function IngredientTagPicker({
   selected,
   onChange,
@@ -234,11 +242,26 @@ export default function IngredientTagPicker({
       if (!selected.includes(tagId)) onChange([tagId]);
       return;
     }
-    onChange(
-      selected.includes(tagId)
-        ? selected.filter((id) => id !== tagId)
-        : [...selected, tagId],
+    if (selected.includes(tagId)) {
+      onChange(selected.filter((id) => id !== tagId));
+      return;
+    }
+    // a tag and its "Not ..." opposite (Vegetarian / Non-Vegetarian) can't both be on
+    const me = tags.find((t) => t.tag_id === tagId);
+    const key = (n: string) => n.trim().toLowerCase().replace(/^non-/, "");
+    const opposite = new Set(
+      me && isNoneGroup(me.group_id)
+        ? tags
+            .filter(
+              (t) =>
+                t.group_id === me.group_id &&
+                t.tag_id !== me.tag_id &&
+                key(t.tag_name) === key(me.tag_name),
+            )
+            .map((t) => t.tag_id)
+        : [],
     );
+    onChange([...selected.filter((id) => !opposite.has(id)), tagId]);
   };
 
   if (loading) {
@@ -294,7 +317,7 @@ export default function IngredientTagPicker({
               {infoGroup != null &&
                 visibleTagsOf(infoGroup).map((tag) => (
                   <Text key={tag.tag_id} style={styles.modalRow}>
-                    <Text style={styles.modalTagName}>{tag.tag_name}</Text>
+                    <Text style={styles.modalTagName}>{tagLabel(tag.tag_name)}</Text>
                     {tag.description ? ` — ${tag.description}` : ""}
                   </Text>
                 ))}
@@ -329,7 +352,7 @@ export default function IngredientTagPicker({
                 onPress={() => toggleTag(tag.tag_id)}
                 style={[styles.chip, styles.chipSelected]}
               >
-                <Text style={styles.chipTextSelected}>{tag.tag_name}</Text>
+                <Text style={styles.chipTextSelected}>{tagLabel(tag.tag_name)}</Text>
                 <Ionicons
                   name="close"
                   size={13}
@@ -465,7 +488,7 @@ export default function IngredientTagPicker({
                             isSelected && styles.chipTextSelected,
                           ]}
                         >
-                          {tag.tag_name}
+                          {tagLabel(tag.tag_name)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -477,7 +500,7 @@ export default function IngredientTagPicker({
                   )?.text;
                   return hint ? (
                     <Text key={`hint-${tag.tag_id}`} style={styles.tagHint}>
-                      <Text style={styles.tagHintName}>{tag.tag_name}: </Text>
+                      <Text style={styles.tagHintName}>{tagLabel(tag.tag_name)}: </Text>
                       {hint}
                     </Text>
                   ) : null;

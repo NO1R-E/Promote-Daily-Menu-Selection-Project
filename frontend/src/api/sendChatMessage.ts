@@ -24,7 +24,7 @@ export async function sendChatMessage(
 
     return await response.json();
   } catch (err: any) {
-    if (err.name === "AbortError") {
+    if (err.name === "AbortError" || /cancel|abort/i.test(String(err.message))) {
       throw new Error("Request timed out — the server took too long to respond.");
     }
     throw err;

@@ -173,12 +173,22 @@ export default function ChatbotScreen() {
         recommendations: data.recommendations || [],
       };
 
+      console.log(
+        "[chat] recommendations",
+        (botMsg.recommendations ?? []).map((r: any) => ({
+          id: r.recipe_id,
+          name: r.recipe_name,
+          health: r.health_score,
+          liking: r.liking_score,
+          final: r.final_score,
+        })),
+      );
       setMessages((prev) => [...prev, botMsg]);
 
-      // ask "Do you like this suggestion?" at most once a day
       if (
         (botMsg.recommendations?.length ?? 0) > 0 &&
-        (await shouldAskLike(user.id))
+        (__DEV__ || (await shouldAskLike(user.id)))
+
       ) {
         markAskedLike(user.id);
         setLikeState((s) => ({ ...s, [botMsg.id]: "asking" }));
@@ -324,6 +334,7 @@ export default function ChatbotScreen() {
       <FlatList
         ref={listRef}
         data={messages}
+        extraData={likeState}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={renderSuggestedActions}

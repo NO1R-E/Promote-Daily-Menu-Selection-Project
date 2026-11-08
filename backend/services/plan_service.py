@@ -2,7 +2,7 @@ import asyncio
 from typing import Dict, List, Optional
 
 from services.dss_service import calculate_meal_recommendations
-from services.supabase_service import log_impressions, supabase
+from services.supabase_service import log_impressions, nudge_skip, supabase
 
 SLOT_ORDER = ["breakfast", "lunch", "dinner"]
 DEFAULT_SHARES = {"breakfast": 30, "lunch": 40, "dinner": 30}
@@ -25,7 +25,8 @@ async def _shares(user_id: str) -> Dict[str, int]:
             for s in SLOT_ORDER}
 
 
-async def generate_plan(user_id: str, preferences=()) -> Dict[str, object]:
+async def generate_plan(user_id: str, preferences=(), focus_tag: Optional[int] = None,
+                        focus_name: Optional[str] = None) -> Dict[str, object]:
     kcal, protein = await _daily_target(user_id)
     shares = await _shares(user_id)
     plan, picked = {}, []
@@ -36,7 +37,7 @@ async def generate_plan(user_id: str, preferences=()) -> Dict[str, object]:
         recs = await calculate_meal_recommendations(
             user_id, preferences, top_k=1, meal_type=slot,
             target_kcal=kcal * pct / 100, target_protein=protein * pct / 100,
-            other_ids=picked)
+            other_ids=picked, focus_tag=focus_tag, focus_name=focus_name)
         if recs:
             plan[slot] = recs[0]
             picked.append(recs[0].recipe_id)
@@ -47,6 +48,7 @@ async def generate_plan(user_id: str, preferences=()) -> Dict[str, object]:
 async def reroll_slot(user_id: str, slot: str, current: Dict[str, int],
                       seen_ids: List[int], preferences=()) -> Optional[object]:
     kcal, protein = await _daily_target(user_id)
+    await nudge_skip(user_id, current.get(slot))  # the recipe being replaced counts as a mild skip
     pct = (await _shares(user_id))[slot]
     recs = await calculate_meal_recommendations(
         user_id, preferences, top_k=1, meal_type=slot,

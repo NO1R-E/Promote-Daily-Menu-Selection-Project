@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from services.meal_service import recommend_one
 from services.meal_utils import infer_meal_type
-from services.supabase_service import log_impressions
+from services.supabase_service import log_impressions, nudge_skip
 
 router = APIRouter(prefix="/api/meal")
 
@@ -19,6 +19,8 @@ class AnotherRequest(BaseModel):
 
 @router.post("/another")
 async def another(req: AnotherRequest, background_tasks: BackgroundTasks):
+    if req.seen_ids:
+        await nudge_skip(req.user_id, req.seen_ids[-1])  # the meal shown last is being skipped
     meal = await recommend_one(
         req.user_id, infer_meal_type(req.meal_type), req.preferences, req.seen_ids
     )

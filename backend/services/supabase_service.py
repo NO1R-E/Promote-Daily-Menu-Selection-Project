@@ -213,3 +213,52 @@ async def log_impressions(user_id: str, recipe_ids: list[int], source: str = "ch
         ).execute())
     except Exception as e:           # การบันทึกพลาดต้องไม่ทำให้แชตพัง
         print(f"log_impressions failed: {e}")
+
+
+async def nudge_skip(user_id: str, recipe_id) -> None:
+    """The user rerolled / asked for another: push the preference vector slightly away from that recipe."""
+    if not recipe_id:
+        return
+    try:
+        await asyncio.to_thread(lambda: supabase.rpc(
+            "skip_recommended_meal",
+            {"p_user": user_id, "p_recipe_id": int(recipe_id)},
+        ).execute())
+    except Exception as e:           # a failed nudge must never break the reroll
+        print(f"nudge_skip failed: {e}")
+
+
+_FOCUS_CACHE: dict = {"at": 0.0, "tags": []}
+_FOCUS_TTL_S = 600
+
+
+async def fetch_focus_tags() -> List[dict]:
+    """Preference tags (food group, cuisine, flavor, texture) the chat may filter by. Cached for 10 minutes."""
+    import time
+    if _FOCUS_CACHE["tags"] and time.time() - _FOCUS_CACHE["at"] < _FOCUS_TTL_S:
+        return _FOCUS_CACHE["tags"]
+    try:
+        res = await asyncio.to_thread(lambda: (
+            supabase.table("tags")
+            .select("tag_id, tag_name, description, tag_groups!inner(group_name, kind)")
+            .eq("is_active", True)
+            .eq("tag_groups.kind", "preference")
+            .execute()))
+        tags = []
+        for r in res.data or []:
+            if r["tag_name"] == "Other":
+                continue
+            g = r.get("tag_groups") or {}
+            if isinstance(g, list):
+                g = g[0] if g else {}
+            tags.append({
+                "id": int(r["tag_id"]),
+                "name": r["tag_name"],
+                "group": g.get("group_name") or "",
+                "description": (r.get("description") or "")[:160],
+            })
+        _FOCUS_CACHE["tags"], _FOCUS_CACHE["at"] = tags, time.time()
+        return tags
+    except Exception as e:           # chat must keep working without tag filtering
+        print(f"fetch_focus_tags failed: {e}")
+        return _FOCUS_CACHE["tags"]

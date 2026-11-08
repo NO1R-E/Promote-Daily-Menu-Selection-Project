@@ -6,11 +6,15 @@ from services.plan_service import slot_target
 
 
 async def recommend_one(
-    user_id: str, meal_type: str, preferences, exclude_ids: Optional[List[int]] = None
+    user_id: str, meal_type: str, preferences, exclude_ids: Optional[List[int]] = None,
+    relax: bool = True,
+    focus_tag: Optional[int] = None,
+    focus_name: Optional[str] = None,
 ) -> Optional[MealRecommendation]:
     kcal, protein = await slot_target(user_id, meal_type)
     meals = await calculate_meal_recommendations(
         user_id, preferences, top_k=1, exclude_ids=exclude_ids,
-        meal_type=meal_type, target_kcal=kcal, target_protein=protein,
+        meal_type=meal_type, target_kcal=kcal, target_protein=protein, relax=relax,
+        focus_tag=focus_tag, focus_name=focus_name,
     )
     return meals[0] if meals else None

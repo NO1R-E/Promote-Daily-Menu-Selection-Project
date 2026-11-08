@@ -15,6 +15,7 @@ class UserMessageRequest(BaseModel):
 class ClassificationResult(BaseModel):
     intent: IntentEnum
     meal_type: Optional[str] = None
+    focus_tag: Optional[int] = None   # a preference tag (food group / cuisine / flavor / texture) the user asked for
     preferences: List[str] = Field(
         default=[],
         description="Extracted constraints like dietary restrictions, health goals, or specific ingredients."

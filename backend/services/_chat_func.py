@@ -6,16 +6,21 @@ from services.plan_service import generate_plan, slot_target
 from schemas import ChatResponse, IntentEnum
 from services.groq_service import classify_intent, generate_usual_chat
 from services.dss_service import calculate_meal_recommendations
-from services.supabase_service import fetch_recent_history, save_chat_turn, get_or_create_room, log_impressions
+from services.supabase_service import fetch_recent_history, save_chat_turn, get_or_create_room, log_impressions, fetch_focus_tags
 
 async def handle_chat_flow(user_id: str, room_id: Optional[str], message: str,
                            background_tasks: BackgroundTasks) -> ChatResponse:
     active_room_id = await get_or_create_room(user_id, room_id, message)
     history = await fetch_recent_history(room_id=active_room_id, limit=8)   # เดิมใช้ room_id ซึ่งเป็น None ในข้อความแรกของห้องใหม่
-    classification = await classify_intent(message, history)
+    focus_options = await fetch_focus_tags()
+    classification = await classify_intent(message, history, focus_options)
+    focus_name = next((t["name"] for t in focus_options if t["id"] == classification.focus_tag), None)
+    print(f"[chat] intent={classification.intent} meal_type={classification.meal_type} "
+          f"prefs={classification.preferences} focus={classification.focus_tag} ({focus_name})")
 
     if classification.intent == IntentEnum.MEAL_PLAN:
-        plan = await generate_plan(user_id, classification.preferences)
+        plan = await generate_plan(user_id, classification.preferences,
+                                   focus_tag=classification.focus_tag, focus_name=focus_name)
         meals = list(plan.values())
         response = ChatResponse(
             room_id=active_room_id, intent=classification.intent,
@@ -24,14 +29,19 @@ async def handle_chat_flow(user_id: str, room_id: Optional[str], message: str,
 
     elif classification.intent == IntentEnum.MEAL_RECOMMENDATION:
         meal_type = infer_meal_type(classification.meal_type)
-        meal = await recommend_one(user_id, meal_type, classification.preferences)
+        meal = await recommend_one(user_id, meal_type, classification.preferences, relax=False,
+                                   focus_tag=classification.focus_tag, focus_name=focus_name)
         meals = [meal] if meal else []
         if meal:
             background_tasks.add_task(log_impressions, user_id, [meal.recipe_id], "chat")
         response = ChatResponse(
             room_id=active_room_id,
             intent=classification.intent,
-            message=f"Here's a {meal_type} idea:" if meal else "No matching meals found.",
+            message=(
+                f"Here's a {meal_type} idea:" if meal
+                else f"No more {focus_name} meals right now. You've already seen the ones that fit, so try again later or ask for something different." if focus_name
+                else "No more matching recipes right now. You've already seen the ones that fit, so try again later or ask for a different meal."
+            ),
             recommendations=meals,
         )
 

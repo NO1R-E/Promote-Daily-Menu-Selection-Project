@@ -34,6 +34,9 @@ async def calculate_meal_recommendations(
     target_protein: Optional[float] = None,
     other_ids: Optional[List[int]] = None,
     rotate: bool = True,
+    focus_tag: Optional[int] = None,     # a tag the user explicitly asked for: used as is, no random rotation, no fallback
+    focus_name: Optional[str] = None,
+    relax: bool = True,         # False = never drop the 3-day rule: say "no more" instead of repeating a recent meal
 ) -> List[MealRecommendation]:
     prefs = clean_preferences(preferences)
     weights = preferences_to_weights(prefs)
@@ -52,7 +55,11 @@ async def calculate_meal_recommendations(
 
     rows, focus, fallback = [], None, []
     unfiltered_done = False
-    if rotate:
+    requested = focus_tag is not None
+    if requested:
+        focus = {"tag_id": focus_tag, "tag_name": focus_name or "your request"}
+        rows = await _rpc("recommend_meals", params(exclude, focus_tag))
+    elif rotate:
         for tag in (await _liked_main_tags(user_id))[:MAX_FOCUS_TRIES]:
             rows = await _rpc("recommend_meals", params(exclude, tag["tag_id"]))
             if rows:
@@ -65,15 +72,19 @@ async def calculate_meal_recommendations(
                 fallback = await _rpc("recommend_meals", params(exclude, None))
                 if not fallback:
                     break
-    if not rows:                                    # ไม่มีสูตรตรงหมวดที่ชอบ -> ไม่จำกัดหมวด
+    if not rows and not requested:                                    # ไม่มีสูตรตรงหมวดที่ชอบ -> ไม่จำกัดหมวด
         rows = fallback
         if not rows and not unfiltered_done:
             rows = await _rpc("recommend_meals", params(exclude, None))
-    if not rows and recent:                         # สูตรเหลือน้อยจนหมด -> ผ่อนกฎ 3 วัน
-        rows = await _rpc("recommend_meals", params(session_exclude, None))
+    if not rows and recent and relax:                         # สูตรเหลือน้อยจนหมด -> ผ่อนกฎ 3 วัน
+        rows = await _rpc("recommend_meals", params(session_exclude, focus_tag if requested else None))
 
     tuned = f", tuned for {', '.join(p.replace('_', ' ') for p in prefs)}" if prefs else ""
-    picked = f" Picked from {focus['tag_name']}, which you like." if focus else ""
+    picked = (
+        (f" Picked from {focus['tag_name']}, as you asked." if requested
+         else f" Picked from {focus['tag_name']}, which you like.")
+        if focus else ""
+    )
 
     results: List[MealRecommendation] = []
     for r in rows or []:
@@ -98,5 +109,14 @@ async def calculate_meal_recommendations(
                 meal_type=meal_type,
                 preferences=prefs,
             )
+        )
+    print(
+        f"[dss] user={user_id[:8]} slot={meal_type} exclude={len(exclude)} (recent={len(recent)}) "
+        f"focus={focus['tag_name'] if focus else None} relax={relax} -> {len(results)} result(s)"
+    )
+    for x in results:
+        print(
+            f"[dss]   #{x.recipe_id} {x.recipe_name!r}: health={x.health_score} "
+            f"liking={x.liking_score} final={x.final_score} kcal={x.calories} protein={x.protein}"
         )
     return results

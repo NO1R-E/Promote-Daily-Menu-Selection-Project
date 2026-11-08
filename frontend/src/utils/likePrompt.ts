@@ -5,6 +5,7 @@ const keyFor = (userId: string) => `likePrompt:lastAskedDate:${userId}`;
 export async function shouldAskLike(userId: string): Promise<boolean> {
   try {
     const last = await AsyncStorage.getItem(keyFor(userId));
+    console.log("[shouldAskLike] last asked date for user", userId, "is", last);
     return last !== localDateString();
   } catch {
     return false;

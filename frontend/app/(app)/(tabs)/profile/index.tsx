@@ -1,9 +1,20 @@
-import { useState } from "react";
-import { StyleSheet, Text, View, Image, TouchableOpacity, TextInput, Modal, ActivityIndicator, Alert } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  StyleSheet,
+  Text,
+  View,
+  Image,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Switch,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker"; 
-import { decode } from "base64-arraybuffer"; 
+import * as ImagePicker from "expo-image-picker";
+import { decode } from "base64-arraybuffer";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
@@ -33,14 +44,51 @@ export default function ProfileScreen() {
 
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
+  // include pending (not yet admin-verified) recipes in recommendations; off by default
+  const [includeUnverified, setIncludeUnverified] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("profiles")
+      .select("include_unverified")
+      .eq("profile_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => setIncludeUnverified(!!data?.include_unverified));
+  }, [user?.id]);
+
+  const saveIncludeUnverified = async (next: boolean) => {
+    if (!user) return;
+    setIncludeUnverified(next);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ include_unverified: next })
+      .eq("profile_id", user.id);
+    if (error) {
+      setIncludeUnverified(!next);
+      Alert.alert("Error", "Could not save this setting.");
+    }
+  };
+
+  const toggleUnverified = (next: boolean) => {
+    if (!next) return saveIncludeUnverified(false);
+    Alert.alert(
+      "Include unverified recipes?",
+      "These recipes haven't been checked by an admin yet, so their nutrition and tags may be less accurate. An unchecked ingredient may be missing its allergen label, so check the ingredients yourself if you have an allergy.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Include", onPress: () => saveIncludeUnverified(true) },
+      ],
+    );
+  };
+
   const handlePickAvatar = async () => {
     if (!user) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"], 
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.6, 
+      quality: 0.6,
       base64: true,
     });
 
@@ -94,7 +142,10 @@ export default function ProfileScreen() {
       setUpdating(true);
       const { error } = await supabase
         .from("profiles")
-        .update({ display_name: newName.trim().slice(0, 30), updated_at: new Date().toISOString() })
+        .update({
+          display_name: newName.trim().slice(0, 30),
+          updated_at: new Date().toISOString(),
+        })
         .eq("profile_id", user.id);
 
       if (error) throw error;
@@ -109,7 +160,7 @@ export default function ProfileScreen() {
       setUpdating(false);
     }
   };
-  
+
   const handleLogout = async () => {
     try {
       const { error } = await supabase.auth.signOut();
@@ -184,7 +235,7 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={styles.menuItem}
           activeOpacity={0.7}
-          onPress={() => router.push("/profile/account")} 
+          onPress={() => router.push("/profile/account")}
         >
           <View style={styles.menuIconCircle}>
             <Ionicons name="person-outline" size={20} color={ORANGE} />
@@ -197,7 +248,7 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={styles.menuItem}
           activeOpacity={0.7}
-          onPress={() => router.push("/profile/personalData")} 
+          onPress={() => router.push("/profile/personalData")}
         >
           <View style={styles.menuIconCircle}>
             <Ionicons name="person-outline" size={20} color={ORANGE} />
@@ -205,7 +256,30 @@ export default function ProfileScreen() {
           <Text style={styles.menuText}>Personal Data</Text>
           <Ionicons name="chevron-forward" size={18} color={ORANGE_BORDER} />
         </TouchableOpacity>
-        
+
+        <View style={styles.menuItem}>
+          <View style={styles.menuIconCircle}>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={20}
+              color={ORANGE}
+            />
+          </View>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={[styles.menuText, { marginLeft: 0 }]}>
+              Include unverified recipes
+            </Text>
+            <Text style={[styles.menuHint, { marginTop: 0 }]}>
+              Off = only admin-verified recipes are recommended
+            </Text>
+          </View>
+          <Switch
+            value={includeUnverified}
+            onValueChange={toggleUnverified}
+            trackColor={{ true: ORANGE, false: "#D1D1D6" }}
+          />
+        </View>
+
         {/* Logout */}
         <TouchableOpacity
           style={styles.menuItem}
@@ -215,10 +289,9 @@ export default function ProfileScreen() {
           <View style={[styles.menuIconCircle, styles.menuIconCircleDanger]}>
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
           </View>
-          <Text style={[styles.menuText, { color: "#FF3B30" }]}>Logout</Text> 
+          <Text style={[styles.menuText, { color: "#FF3B30" }]}>Logout</Text>
           <Ionicons name="chevron-forward" size={18} color={ORANGE_BORDER} />
         </TouchableOpacity>
-
       </View>
 
       {/* Pop-up Modal สำหรับกรอกแก้ไข Username */}
@@ -285,7 +358,9 @@ export default function ProfileScreen() {
             </View>
 
             <Text style={styles.modalTitle}>Logout</Text>
-            <Text style={styles.modalSubTitle}>Are you sure you want to logout?</Text>
+            <Text style={styles.modalSubTitle}>
+              Are you sure you want to logout?
+            </Text>
 
             <View style={styles.modalButtonContainer}>
               {/* ปุ่มยกเลิก */}
@@ -309,15 +384,29 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: "#F8F9FA", paddingHorizontal: 20, paddingTop: 60 },
-  centerContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#F8F9FA" },
-  screenTitle: { fontSize: 28, fontWeight: "bold", color: "#1C1C1E", marginBottom: 20 },
+  mainContainer: {
+    flex: 1,
+    backgroundColor: "#F8F9FA",
+    paddingHorizontal: 20,
+    paddingTop: 60,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8F9FA",
+  },
+  screenTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#1C1C1E",
+    marginBottom: 20,
+  },
 
   // สไตล์กล่องส้ม
   orangeCard: {
@@ -334,7 +423,14 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   profileInfoContainer: { flexDirection: "row", alignItems: "center", flex: 1 },
-  avatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#FFF", borderWidth: 2.5, borderColor: "#FFF" },
+  avatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#FFF",
+    borderWidth: 2.5,
+    borderColor: "#FFF",
+  },
 
   // [AVATAR] สไตล์ overlay ตอนอัปโหลด และไอคอนกล้อง
   avatarLoadingOverlay: {
@@ -364,7 +460,11 @@ const styles = StyleSheet.create({
 
   textContainer: { marginLeft: 15, flex: 1 },
   displayNameText: { fontSize: 20, fontWeight: "bold", color: "#FFFFFF" },
-  usernameText: { fontSize: 14, color: "rgba(255, 255, 255, 0.75)", marginTop: 2 },
+  usernameText: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.75)",
+    marginTop: 2,
+  },
   editButton: {
     width: 36,
     height: 36,
@@ -398,10 +498,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   menuIconCircleDanger: { backgroundColor: "#FFEBEA" },
-  menuText: { flex: 1, marginLeft: 14, fontSize: 16, fontWeight: "500", color: "#3A3A3C" },
+  menuHint: { fontSize: 12, color: "#8E8E93", marginTop: 2 },
+  menuText: {
+    flex: 1,
+    marginLeft: 14,
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#3A3A3C",
+  },
 
   // สไตล์ Modal
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.5)", justifyContent: "center", alignItems: "center" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   modalCard: {
     backgroundColor: "#FFF",
     width: "82%",
@@ -414,10 +526,36 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#333", marginBottom: 15 },
-  input: { width: "100%", height: 48, borderWidth: 1.5, borderColor: ORANGE_BORDER, borderRadius: 12, paddingHorizontal: 15, fontSize: 16, color: "#333", marginBottom: 20, backgroundColor: "#F8F9FA" },
-  modalButtonContainer: { flexDirection: "row", width: "100%", justifyContent: "space-between" },
-  modalButton: { flex: 1, height: 46, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 15,
+  },
+  input: {
+    width: "100%",
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: ORANGE_BORDER,
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 20,
+    backgroundColor: "#F8F9FA",
+  },
+  modalButtonContainer: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "space-between",
+  },
+  modalButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   cancelButton: { backgroundColor: "#F2F2F7", marginRight: 10 },
   cancelButtonText: { color: "#8E8E93", fontSize: 16, fontWeight: "600" },
   saveButton: {

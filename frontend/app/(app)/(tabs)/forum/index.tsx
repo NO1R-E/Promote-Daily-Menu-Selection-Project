@@ -80,13 +80,11 @@ export default function ForumIndex() {
       setLoadingMore(true);
     }
 
-    // ตัวนับคำขอ: ถ้ามีคำขอใหม่กว่าเริ่มแล้ว ผลของคำขอเก่าจะถูกทิ้ง
     const reqId = reset ? ++requestRef.current : requestRef.current;
     const list = reset ? [] : posts;
     const last = list.length ? list[list.length - 1] : null;
 
     try {
-      // ค้นหาจาก Supabase: ได้ id ของโพสต์ที่ตรง (ชื่อโพสต์ / ชื่อสูตร / แฮชแท็ก)
       let ids: number[] | null = null;
       if (activeQuery) {
         if (reset) {

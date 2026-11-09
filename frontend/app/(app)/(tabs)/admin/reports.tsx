@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,8 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 import { supabase } from "@/src/config/supabase";
 
 type FlaggedForum = {
@@ -41,6 +43,7 @@ const BAN_DURATIONS: { label: string; days: number | null }[] = [
 ];
 
 export default function AdminReportsScreen() {
+  const router = useRouter();
   const [flaggedPosts, setFlaggedPosts] = useState<FlaggedForum[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -65,9 +68,26 @@ export default function AdminReportsScreen() {
     setLoading(false);
   };
 
-  useEffect(() => {
+  // refetch every time the screen regains focus, so a post removed in the forum drops off the queue
+  useFocusEffect(
+    useCallback(() => {
     fetchFlaggedReports();
-  }, []);
+    }, []),
+  );
+
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyText = async (key: string, text: string) => {
+    await Clipboard.setStringAsync(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+  };
+
+  const openPostInForum = () => {
+    if (!selectedPost) return;
+    const id = selectedPost.recipe_forum_id;
+    setReviewModalVisible(false);
+    router.push(`/post/${id}`);
+  };
 
   const handleOpenReview = async (item: FlaggedForum) => {
     setSelectedReportSummary(item);
@@ -206,7 +226,24 @@ export default function AdminReportsScreen() {
               </View>
 
               <Text style={styles.postSectionTitle}>Post Title:</Text>
-              <Text style={styles.postTitle}>{selectedPost.title}</Text>
+              <View style={styles.copyRow}>
+                <Text style={[styles.postTitle, { flex: 1, marginBottom: 0 }]}>{selectedPost.title}</Text>
+                <TouchableOpacity hitSlop={10} onPress={() => copyText("title", selectedPost.title)}>
+                  <Ionicons name={copiedKey === "title" ? "checkmark" : "copy-outline"} size={20} color={copiedKey === "title" ? "#34C759" : "#666"} />
+                </TouchableOpacity>
+              </View>
+
+              {selectedPost.recipes?.recipe_name && (
+                <>
+                  <Text style={styles.postSectionTitle}>Recipe Name:</Text>
+                  <View style={styles.copyRow}>
+                    <Text style={[styles.postContent, { flex: 1, marginBottom: 0 }]}>{selectedPost.recipes.recipe_name}</Text>
+                    <TouchableOpacity hitSlop={10} onPress={() => copyText("recipe", selectedPost.recipes?.recipe_name ?? "")}>
+                      <Ionicons name={copiedKey === "recipe" ? "checkmark" : "copy-outline"} size={20} color={copiedKey === "recipe" ? "#34C759" : "#666"} />
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
 
               {selectedPost.caption && (
                 <>
@@ -225,6 +262,11 @@ export default function AdminReportsScreen() {
                   </Text>
                 </>
               )}
+
+              <TouchableOpacity style={styles.openPostBtn} onPress={openPostInForum}>
+                <Ionicons name="open-outline" size={18} color="#F28E2B" />
+                <Text style={styles.openPostText}>Open post in forum</Text>
+              </TouchableOpacity>
 
               <Text style={styles.actionSectionTitle}>Admin Decision:</Text>
 
@@ -388,6 +430,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
+  copyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  openPostBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#F28E2B",
+  },
+  openPostText: { color: "#F28E2B", fontWeight: "600", fontSize: 14 },
   dismissBtn: { backgroundColor: "#34C759" },
   deleteOnlyBtn: { backgroundColor: "#FF9500" },
   punishBtn: { backgroundColor: "#FF3B30" },

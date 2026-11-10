@@ -21,6 +21,7 @@ type Row = {
   banned: boolean;
   ban_reason: string | null;
   ban_expires: string | null;
+  role?: string | null;
 };
 
 const DURATIONS: { label: string; days: number | null }[] = [
@@ -166,7 +167,11 @@ export default function UsersScreen() {
                   </Text>
                 )}
               </View>
-              {item.banned ? (
+              {item.role === "admin" && !item.banned ? (
+                <View style={styles.adminTag}>
+                  <Text style={styles.adminTagText}>Admin</Text>
+                </View>
+              ) : item.banned ? (
                 <TouchableOpacity
                   style={[styles.btn, { backgroundColor: "#2E9E5B" }]}
                   onPress={() => unban(item)}
@@ -275,6 +280,15 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 15, fontWeight: "600", color: "#222" },
   sub: { fontSize: 12, color: "#888", marginTop: 2 },
+  adminTag: {
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    minWidth: 76,
+    alignItems: "center",
+    backgroundColor: "#FFF3E0",
+  },
+  adminTagText: { color: "#C96A0A", fontWeight: "700" },
   btn: {
     paddingVertical: 7,
     paddingHorizontal: 14,

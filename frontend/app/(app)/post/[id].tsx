@@ -315,9 +315,16 @@ export default function PostScreen() {
                 style={styles.avatar}
               />
               <View style={styles.authorInfo}>
-                <Text style={styles.authorName}>
-                  {author?.display_name || author?.username || "User"}
-                </Text>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.authorName, { flexShrink: 1 }]} numberOfLines={1}>
+                    {author?.display_name || author?.username || "User"}
+                  </Text>
+                  {!!author?.display_name && !!author?.username && (
+                    <Text style={styles.handle} numberOfLines={1}>
+                      @{author.username}
+                    </Text>
+                  )}
+                </View>
                 <Text style={styles.timeAgo}>{timeAgo(post.created_at)}</Text>
                 <View style={styles.tagsContainer}>
                   {post.hashtags.map((tag) => (
@@ -625,6 +632,8 @@ const styles = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 22 },
   authorInfo: { flex: 1, marginLeft: 12 },
   authorName: { fontSize: 16, fontWeight: "bold", color: "#333" },
+  nameRow: { flexDirection: "row", alignItems: "baseline", gap: 6 },
+  handle: { fontSize: 12, color: "#999", flexShrink: 1 },
   timeAgo: { fontSize: 12, color: "#999", marginTop: 2 },
   tagsContainer: {
     flexDirection: "row",

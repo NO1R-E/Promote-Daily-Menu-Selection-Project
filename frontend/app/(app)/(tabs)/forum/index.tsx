@@ -415,6 +415,7 @@ export default function ForumIndex() {
                 router.push(`/(app)/post/${item.recipe_forum_id}` as any)
               }
             >
+              {/* header: avatar, display name, @username · age, status icon top right */}
               <View style={styles.cardHeader}>
                 <Image
                   source={{
@@ -423,10 +424,15 @@ export default function ForumIndex() {
                   style={styles.avatar}
                 />
                 <View style={styles.userInfo}>
-                  <Text style={styles.userName}>
+                  <Text style={styles.userName} numberOfLines={1}>
                     {author?.display_name || author?.username || "User"}
                   </Text>
-                  <Text style={styles.timeAgo}>{timeAgo(item.created_at)}</Text>
+                  <Text style={styles.timeAgo} numberOfLines={1}>
+                    {author?.display_name && author?.username
+                      ? `@${author.username} · `
+                      : ""}
+                    {timeAgo(item.created_at)}
+                  </Text>
                 </View>
               </View>
 
@@ -438,8 +444,17 @@ export default function ForumIndex() {
               )}
 
               <View style={styles.titleRow}>
-                <Text style={[styles.cardTitle, { flexShrink: 1, marginBottom: 0 }]}>{item.title}</Text>
-                <RecipeStatusBadge status={recipe.status} compact />
+                {/* one line: a long title is cut with "..." and the icon (flexShrink 0) always stays visible */}
+                <Text
+                  style={[styles.cardTitle, { flexShrink: 1, marginBottom: 0 }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {item.title}
+                </Text>
+                <View style={styles.statusIcon}>
+                  <RecipeStatusBadge status={recipe.status} compact />
+                </View>
               </View>
               {!!item.caption && (
                 <Text style={styles.cardDesc} numberOfLines={2}>
@@ -447,7 +462,7 @@ export default function ForumIndex() {
                 </Text>
               )}
 
-              <View style={styles.cardFooter}>
+              {item.hashtags.length > 0 && (
                 <View style={styles.tagsContainer}>
                   {item.hashtags.slice(0, 3).map((tag) => (
                     <View key={tag} style={styles.tagBadge}>
@@ -455,48 +470,53 @@ export default function ForumIndex() {
                     </View>
                   ))}
                 </View>
-                <View style={styles.actionContainer}>
+              )}
+
+              <View style={styles.divider} />
+
+              {/* bottom: like + save on the left, menu / report on the right */}
+              <View style={styles.cardActions}>
+                <TouchableOpacity
+                  style={styles.likeBtn}
+                  onPress={() => handleToggleLike(item.recipe_forum_id)}
+                  accessibilityLabel="Like"
+                >
+                  <Ionicons
+                    name={item.is_liked ? "heart" : "heart-outline"}
+                    size={22}
+                    color={item.is_liked ? "#FF3B30" : "#333"}
+                  />
+                  <Text style={styles.likeCount}>{item.likes_count}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleToggleSave(item.recipe_forum_id)}
+                  style={styles.iconBtn}
+                  accessibilityLabel="Save"
+                >
+                  <Ionicons
+                    name={item.is_saved ? "bookmark" : "bookmark-outline"}
+                    size={22}
+                    color={item.is_saved ? "#FF7A00" : "#333"}
+                  />
+                </TouchableOpacity>
+                <View style={{ flex: 1 }} />
+                {isMine || isAdmin ? (
                   <TouchableOpacity
-                    style={styles.likeContainer}
-                    onPress={() => handleToggleLike(item.recipe_forum_id)}
+                    onPress={() => setMenuPostId(item.recipe_forum_id)}
+                    style={[styles.iconBtn, styles.iconBtnEnd]}
+                    accessibilityLabel="Post options"
                   >
-                    <Text style={styles.likeCount}>{item.likes_count}</Text>
-                    <Ionicons
-                      name={item.is_liked ? "heart" : "heart-outline"}
-                      size={22}
-                      color={item.is_liked ? "#FF3B30" : "#333"}
-                    />
+                    <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
                   </TouchableOpacity>
+                ) : (
                   <TouchableOpacity
-                    onPress={() => handleToggleSave(item.recipe_forum_id)}
-                    style={styles.reportBtn}
+                    onPress={() => handleOpenReport(item.recipe_forum_id)}
+                    style={[styles.iconBtn, styles.iconBtnEnd]}
+                    accessibilityLabel="Report post"
                   >
-                    <Ionicons
-                      name={item.is_saved ? "bookmark" : "bookmark-outline"}
-                      size={20}
-                      color={item.is_saved ? "#FF7A00" : "#666"}
-                    />
+                    <Ionicons name="flag-outline" size={20} color="#666" />
                   </TouchableOpacity>
-                  {isMine || isAdmin ? (
-                    <TouchableOpacity
-                      onPress={() => setMenuPostId(item.recipe_forum_id)}
-                      style={styles.reportBtn}
-                    >
-                      <Ionicons
-                        name="ellipsis-horizontal"
-                        size={20}
-                        color="#666"
-                      />
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      onPress={() => handleOpenReport(item.recipe_forum_id)}
-                      style={styles.reportBtn}
-                    >
-                      <Ionicons name="flag-outline" size={20} color="#666" />
-                    </TouchableOpacity>
-                  )}
-                </View>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -592,8 +612,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     marginHorizontal: 16,
     marginTop: 14,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
     borderColor: "#EFEFEF",
     shadowColor: "#000",
@@ -602,20 +622,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22 },
+  cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
   userInfo: { flex: 1, marginLeft: 12 },
-  userName: { fontSize: 16, fontWeight: "bold", color: "#333" },
-  timeAgo: { fontSize: 12, color: "#999", marginTop: 2 },
-  cardImage: { width: "100%", height: 180, borderRadius: 12, marginBottom: 12 },
+  userName: { fontSize: 15, fontWeight: "bold", color: "#222" },
+  nameRow: { flexDirection: "row", alignItems: "baseline", gap: 6 },
+  handle: { fontSize: 12, color: "#999", flexShrink: 1 },
+  timeAgo: { fontSize: 12, color: "#767676", marginTop: 2 },
+  cardImage: { width: "100%", height: 190, borderRadius: 14, marginBottom: 14 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  statusIcon: { flexShrink: 0 },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "bold",
-    color: "#000",
+    color: "#111",
+    lineHeight: 23,
     marginBottom: 6,
   },
-  cardDesc: { fontSize: 14, color: "#666", lineHeight: 20, marginBottom: 12 },
+  cardDesc: { fontSize: 14, color: "#5F5F5F", lineHeight: 21, marginBottom: 12 },
   cardFooter: {
     flexDirection: "row",
     alignItems: "center",
@@ -624,24 +648,27 @@ const styles = StyleSheet.create({
   tagsContainer: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 4,
     flexWrap: "wrap",
-    flex: 1,
   },
   tagBadge: {
-    backgroundColor: "#EEEEEE",
+    backgroundColor: "#F2F2F3",
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
-  tagText: { fontSize: 12, color: "#666" },
+  tagText: { fontSize: 12, color: "#555" },
+  divider: { height: 1, backgroundColor: "#F0F0F0", marginTop: 14 },
+  cardActions: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: -8 },
+  likeBtn: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingRight: 12 },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  iconBtnEnd: { marginRight: -10 },
   actionContainer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
   likeContainer: { flexDirection: "row", alignItems: "center", gap: 6 },
-  likeCount: { fontSize: 14, color: "#333", fontWeight: "500" },
+  likeCount: { fontSize: 14, color: "#333", fontWeight: "600" },
   reportBtn: { padding: 2 },
   emptyText: { textAlign: "center", marginTop: 40, color: "#666" },
 });

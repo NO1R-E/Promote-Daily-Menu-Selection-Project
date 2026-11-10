@@ -1,9 +1,7 @@
-// Small pill showing whether a recipe has been checked by an admin.
-// verified = every ingredient is admin-verified; pending = not yet checked (nutrition, diet and allergen labels may be off).
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-type Props = { status?: string | null; compact?: boolean }; // compact = icon only (next to a title)
+type Props = { status?: string | null; compact?: boolean };
 
 export default function RecipeStatusBadge({ status, compact }: Props) {
   if (compact) {

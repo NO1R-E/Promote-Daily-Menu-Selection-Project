@@ -39,17 +39,17 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // server-side, case-insensitive check that also works before login (see username_available in SQL)
   const checkUsernameExists = async (username: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("username", username)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("username_available", {
+      p_username: username,
+    });
     if (error) {
+      // can't tell: let sign-up try, the server error below is translated for the user
       console.log("Error checking username:", error.message);
       return false;
     }
-    return data !== null;
+    return data === false;
   };
 
   // cheap checks first, the network call last
@@ -85,7 +85,16 @@ export default function RegisterScreen() {
         },
       });
       if (error) {
-        Alert.alert("Signup Error", error.message);
+        console.log("Signup error:", error.status, error.message);
+        // a duplicate username that slipped past the check fails inside the signup trigger as a 500
+        const dbFail =
+          error.status === 500 || /database error saving new user/i.test(error.message);
+        Alert.alert(
+          "Signup Error",
+          dbFail
+            ? "We couldn't create the account. That username may already be taken, please try another one."
+            : error.message,
+        );
       } else {
         Alert.alert("OTP Sent", "Check your email for the verification code.");
         setOtpSent(true);

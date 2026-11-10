@@ -21,11 +21,13 @@ Classify the user input strictly into ONE of these intents:
 
 1. "meal_recommendation": the user wants ideas for ONE dish or ONE meal (e.g. "what should I eat for lunch?").
 2. "meal_plan": the user wants a whole day, or several meals, planned at once (e.g. "plan my meals for today", "what should I eat all day?").
-3. "usual_chat": general conversation, greetings, nutrition questions, or recipe follow-ups.
+3. "usual_chat": general conversation, greetings, thanks, nutrition questions, or recipe follow-ups.
+4. "unclear": ONLY when the message is gibberish or has no discernible meaning (random characters, keyboard mashing, a lone symbol).
+   Never use it for greetings, thanks, small talk, off-topic but understandable questions, or short food words. When in doubt use "usual_chat".
 
 Output MUST be a valid JSON object following this format:
 {{
-  "intent": "usual_chat" | "meal_recommendation" | "meal_plan",
+  "intent": "usual_chat" | "meal_recommendation" | "meal_plan" | "unclear",
   "meal_type": null,
   "preferences": []
 }}
@@ -40,7 +42,7 @@ Rules for preferences:
   "not too sweet" -> "low_sugar", "more protein" -> "high_protein".
 - Never invent new values. If nothing in the list applies, return [].
 - Consider both past context and the new message.
-- If intent is "usual_chat", return [].
+- If intent is "usual_chat" or "unclear", return [].
 """
 
 def get_groq_client() -> Groq:
@@ -119,7 +121,7 @@ async def classify_intent(
         result.focus_tag = int(raw_focus) if raw_focus is not None else None
     except (TypeError, ValueError):
         result.focus_tag = None
-    if result.intent == IntentEnum.USUAL_CHAT or result.focus_tag not in {t["id"] for t in focus_options or []}:
+    if result.intent in (IntentEnum.USUAL_CHAT, IntentEnum.UNCLEAR) or result.focus_tag not in {t["id"] for t in focus_options or []}:
         result.focus_tag = None
     result.preferences = clean_preferences(result.preferences)   # clean generated preferences
     return result

@@ -4,6 +4,7 @@ from services.meal_service import recommend_one
 from services.meal_utils import infer_meal_type
 from services.plan_service import generate_plan, slot_target
 from schemas import ChatResponse, IntentEnum
+from services.help_text import canned_reply, unclear_reply
 from services.groq_service import classify_intent, generate_usual_chat
 from services.dss_service import calculate_meal_recommendations
 from services.supabase_service import fetch_recent_history, save_chat_turn, get_or_create_room, log_impressions, fetch_focus_tags
@@ -11,6 +12,14 @@ from services.supabase_service import fetch_recent_history, save_chat_turn, get_
 async def handle_chat_flow(user_id: str, room_id: Optional[str], message: str,
                            background_tasks: BackgroundTasks) -> ChatResponse:
     active_room_id = await get_or_create_room(user_id, room_id, message)
+
+    canned = canned_reply(message)
+    if canned:
+        print(f"[chat] canned reply for: {message[:40]!r}")
+        response = ChatResponse(room_id=active_room_id, intent=IntentEnum.USUAL_CHAT, message=canned)
+        background_tasks.add_task(save_chat_turn, active_room_id, message, response)
+        return response
+
     history = await fetch_recent_history(room_id=active_room_id, limit=8)   # เดิมใช้ room_id ซึ่งเป็น None ในข้อความแรกของห้องใหม่
     focus_options = await fetch_focus_tags()
     classification = await classify_intent(message, history, focus_options)
@@ -46,7 +55,10 @@ async def handle_chat_flow(user_id: str, room_id: Optional[str], message: str,
         )
 
     else:
-        chat_reply = await generate_usual_chat(message, history)
+        if classification.intent == IntentEnum.UNCLEAR:      # the classifier couldn't make sense of it
+            chat_reply = unclear_reply(message)
+        else:
+            chat_reply = await generate_usual_chat(message, history)
         response = ChatResponse(room_id=active_room_id, intent=IntentEnum.USUAL_CHAT, message=chat_reply)
 
     background_tasks.add_task(save_chat_turn, active_room_id, message, response)

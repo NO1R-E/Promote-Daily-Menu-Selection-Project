@@ -6,6 +6,7 @@ class IntentEnum(str, Enum):
     USUAL_CHAT = "usual_chat"
     MEAL_RECOMMENDATION = "meal_recommendation"
     MEAL_PLAN = "meal_plan"
+    UNCLEAR = "unclear"   # the message makes no sense: answered with predefined text, never stored as an intent
 
 class UserMessageRequest(BaseModel):
     user_id: str

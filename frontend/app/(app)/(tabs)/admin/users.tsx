@@ -78,7 +78,28 @@ export default function UsersScreen() {
     setDays(7);
   };
 
-  const confirmBan = async () => {
+  // the sheet's button is already a confirmation; a permanent ban gets one more check
+  const confirmBan = () => {
+    if (!target) return;
+    if (!reason.trim()) {
+      Alert.alert("Reason required", "The user will see this reason.");
+      return;
+    }
+    if (days !== null) {
+      submitBan();
+      return;
+    }
+    Alert.alert(
+      "Ban permanently?",
+      `${target.username ?? "This user"} will lose access until you unban them.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Ban permanently", style: "destructive", onPress: submitBan },
+      ],
+    );
+  };
+
+  const submitBan = async () => {
     if (!target) return;
     if (!reason.trim()) {
       Alert.alert("Reason required", "The user will see this reason.");

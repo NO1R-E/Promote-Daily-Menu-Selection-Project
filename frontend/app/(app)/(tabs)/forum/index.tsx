@@ -16,6 +16,7 @@ import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import ReportModal from "@/components/ReportModal";
 import PostMenuSheet from "@/components/PostMenuSheet";
+import RecipeStatusBadge from "@/components/RecipeStatusBadge";
 import {
   consumeForumDirty,
   forumSelect,
@@ -385,7 +386,7 @@ export default function ForumIndex() {
             />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search title, recipe or #tag"
+              placeholder="Search title, recipe, tag (thai, vegan, spicy)"
               placeholderTextColor="#999"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -436,7 +437,10 @@ export default function ForumIndex() {
                 />
               )}
 
-              <Text style={styles.cardTitle}>{item.title}</Text>
+              <View style={styles.titleRow}>
+                <Text style={[styles.cardTitle, { flexShrink: 1, marginBottom: 0 }]}>{item.title}</Text>
+                <RecipeStatusBadge status={recipe.status} compact />
+              </View>
               {!!item.caption && (
                 <Text style={styles.cardDesc} numberOfLines={2}>
                   {item.caption}
@@ -604,6 +608,7 @@ const styles = StyleSheet.create({
   userName: { fontSize: 16, fontWeight: "bold", color: "#333" },
   timeAgo: { fontSize: 12, color: "#999", marginTop: 2 },
   cardImage: { width: "100%", height: 180, borderRadius: 12, marginBottom: 12 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   cardTitle: {
     fontSize: 16,
     fontWeight: "bold",

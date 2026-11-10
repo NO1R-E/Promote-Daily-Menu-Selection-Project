@@ -113,6 +113,36 @@ export default function AdminReportsScreen() {
     setReviewModalVisible(true);
   };
 
+  // every decision is irreversible (reports get closed, posts get removed, users get banned): ask first
+  const confirmDecision = (isFault: boolean, banPoster: boolean) => {
+    const banText = banDays === null ? "permanently" : `for ${banDays} days`;
+    const cfg = !isFault
+      ? {
+          title: "Dismiss these reports?",
+          body: "The post stays visible and all pending reports on it are closed as no fault.",
+          ok: "Dismiss",
+        }
+      : !banPoster
+        ? {
+            title: "Delete this post?",
+            body: "The post is removed from the forum and from meal recommendations, and the reports are closed. This can't be undone.",
+            ok: "Delete post",
+          }
+        : {
+            title: `Delete post and ban poster ${banText}?`,
+            body: `The post is removed and the poster is banned ${banText}. This can't be undone.`,
+            ok: "Delete & ban",
+          };
+    Alert.alert(cfg.title, cfg.body, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: cfg.ok,
+        style: isFault ? "destructive" : "default",
+        onPress: () => handleReviewDecision(isFault, banPoster),
+      },
+    ]);
+  };
+
   // All writes happen server-side in one admin-checked transaction
   const handleReviewDecision = async (isFault: boolean, banPoster: boolean) => {
     if (!selectedPost) return;
@@ -276,7 +306,7 @@ export default function AdminReportsScreen() {
                 <View style={styles.actionButtonsContainer}>
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.dismissBtn]}
-                    onPress={() => handleReviewDecision(false, false)}
+                    onPress={() => confirmDecision(false, false)}
                   >
                     <Text style={styles.actionBtnText}>
                       No Fault (Dismiss Reports)
@@ -285,7 +315,7 @@ export default function AdminReportsScreen() {
 
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.deleteOnlyBtn]}
-                    onPress={() => handleReviewDecision(true, false)}
+                    onPress={() => confirmDecision(true, false)}
                   >
                     <Text style={styles.actionBtnText}>
                       At Fault (Delete Post Only)
@@ -315,7 +345,7 @@ export default function AdminReportsScreen() {
                   </View>
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.punishBtn]}
-                    onPress={() => handleReviewDecision(true, true)}
+                    onPress={() => confirmDecision(true, true)}
                   >
                     <Text style={styles.actionBtnText}>
                       At Fault &amp; Ban Poster

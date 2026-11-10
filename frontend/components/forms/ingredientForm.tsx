@@ -465,6 +465,52 @@ export default function IngredientForm({
     }
   };
 
+  // admin saves change what recipes are labelled as (diet) and warned about (allergen): show them and ask first
+  const confirmAdminSave = async (ids: number[]): Promise<boolean> => {
+    let allergens: string[] = [];
+    let diets: string[] = [];
+    if (ids.length > 0) {
+      const { data } = await supabase
+        .from("tags")
+        .select("tag_name, group_id")
+        .in("tag_id", ids)
+        .in("group_id", [ALLERGEN_GROUP_ID, DIET_GROUP_ID]);
+      const rows = (data ?? []) as any[];
+      const names = (g: number) =>
+        rows
+          .filter((t) => Number(t.group_id) === g && !/^non-/i.test(String(t.tag_name)))
+          .map((t) => String(t.tag_name));
+      allergens = names(ALLERGEN_GROUP_ID);
+      diets = names(DIET_GROUP_ID);
+    }
+    const title = isEdit
+      ? verifyOnSave
+        ? "Verify this ingredient?"
+        : "Save changes?"
+      : "Add as a verified ingredient?";
+    const body =
+      "Diet and allergen labels are the two things people depend on for health and religious reasons. Please check them again before you continue.\n\n" +
+      `Allergens: ${allergens.length ? allergens.join(", ") : "none marked"}\n` +
+      `Diet: ${diets.length ? diets.join(", ") : "none (treated as not suitable for any diet)"}\n\n` +
+      (isEdit && !verifyOnSave
+        ? "New recipes will use these labels. Existing recipes keep their current labels until they are refreshed."
+        : "A verified ingredient is trusted by every recipe that uses it.");
+    return new Promise((resolve) =>
+      Alert.alert(
+        title,
+        body,
+        [
+          { text: "Go back", style: "cancel", onPress: () => resolve(false) },
+          {
+            text: verifyOnSave ? "Verify" : isEdit ? "Save" : "Add",
+            onPress: () => resolve(true),
+          },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      ),
+    );
+  };
+
   const handleSave = async () => {
     const en = nameEn.trim();
     const th = nameTh.trim();
@@ -553,6 +599,7 @@ export default function IngredientForm({
     try {
       setSaving(true);
       const finalTagIds = dietOn ? await withDietOpposites(tagIds) : tagIds;
+      if (isAdmin && !(await confirmAdminSave(finalTagIds))) return;
 
       if (isEdit) {
         const { error: updErr } = await supabase.rpc("admin_update_ingredient", {
@@ -665,6 +712,16 @@ export default function IngredientForm({
   return (
     <View style={styles.container}>
       {!!heading && <Text style={styles.title}>{heading}</Text>}
+
+      {isAdmin && (
+        <View style={styles.adminWarn}>
+          <Ionicons name="warning-outline" size={18} color="#9A5B00" />
+          <Text style={styles.adminWarnText}>
+            Before you {verifyOnSave ? "verify" : "save"}: make sure the Diet and Allergen tags are
+            correct. Everything else can be fixed later, but people rely on these two.
+          </Text>
+        </View>
+      )}
 
       {/* AI assist (not when editing an existing ingredient) */}
       {!isEdit && (
@@ -1089,6 +1146,18 @@ const styles = StyleSheet.create({
     color: "#333",
     backgroundColor: "#F8F9FA",
   },
+
+  adminWarn: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFF3D6",
+    borderWidth: 1,
+    borderColor: "#F2D48A",
+    marginBottom: 16,
+  },
+  adminWarnText: { flex: 1, fontSize: 13, color: "#7A4A00", lineHeight: 18 },
 
   aiBox: {
     padding: 12,

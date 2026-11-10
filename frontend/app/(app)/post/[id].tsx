@@ -14,6 +14,7 @@ import {
 import PostMenuSheet from "@/components/PostMenuSheet";
 import RecordMealSheet from "@/components/RecordMealSheet";
 import ReportModal from "@/components/ReportModal";
+import RecipeStatusBadge from "@/components/RecipeStatusBadge";
 import {
   fetchForumPost,
   markForumDirty,
@@ -369,6 +370,14 @@ export default function PostScreen() {
             )}
 
             <Text style={styles.mainTitle}>{post.title}</Text>
+            <View style={{ marginBottom: 8 }}>
+              <RecipeStatusBadge status={recipe.status} />
+              {recipe.status === "pending" && (
+                <Text style={styles.pendingNote}>
+                  Not checked by an admin yet. Nutrition, diet and allergen labels may be inaccurate.
+                </Text>
+              )}
+            </View>
             <Text style={styles.subTitle}>
               {recipe.recipe_name}
               {recipe.serving ? ` · serves ${recipe.serving}` : ""}
@@ -698,6 +707,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cuisineText: { fontSize: 12, fontWeight: "600", color: "#C96A0A" },
+  pendingNote: { fontSize: 12, color: "#8E8E93", marginTop: 6, lineHeight: 17 },
   tagBlock: { marginBottom: 14, gap: 8 },
   tagGroupRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   tagGroupLabel: { width: 82, fontSize: 12, fontWeight: "600", color: "#8E8E93", paddingTop: 5 },

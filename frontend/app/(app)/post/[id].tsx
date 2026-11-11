@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -64,7 +65,7 @@ export default function PostScreen() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [recording, setRecording] = useState(false);
 
-  // silent = refresh in place (no spinner), used when the screen regains focus after an edit
+
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
@@ -98,7 +99,7 @@ export default function PostScreen() {
     [postId, user?.id],
   );
 
-  // Runs on first open and every time we come back (e.g. after Edit -> Save)
+
   useFocusEffect(
     useCallback(() => {
       load(hasLoaded.current);
@@ -120,6 +121,16 @@ export default function PostScreen() {
   useEffect(() => {
     refreshLogs();
   }, [refreshLogs]);
+
+  // Open Google maps จาก url ชื่อเมนู + "ร้านอาหาร" (เพื่อให้เจอร้านอาหารที่ขายเมนูนั้น)
+  const openInMaps = (dish: string) => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      `${dish} ร้านอาหาร`,
+    )}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Couldn't open Maps", "Please try again."),
+    );
+  };
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -316,7 +327,10 @@ export default function PostScreen() {
               />
               <View style={styles.authorInfo}>
                 <View style={styles.nameRow}>
-                  <Text style={[styles.authorName, { flexShrink: 1 }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.authorName, { flexShrink: 1 }]}
+                    numberOfLines={1}
+                  >
                     {author?.display_name || author?.username || "User"}
                   </Text>
                   {!!author?.display_name && !!author?.username && (
@@ -381,7 +395,8 @@ export default function PostScreen() {
               <RecipeStatusBadge status={recipe.status} />
               {recipe.status === "pending" && (
                 <Text style={styles.pendingNote}>
-                  Not checked by an admin yet. Nutrition, diet and allergen labels may be inaccurate.
+                  Not checked by an admin yet. Nutrition, diet and allergen
+                  labels may be inaccurate.
                 </Text>
               )}
             </View>
@@ -453,7 +468,9 @@ export default function PostScreen() {
 
             {nutrition && (
               <View style={styles.nutritionCard}>
-                <Text style={styles.nutritionTitle}>Nutrition · per serving</Text>
+                <Text style={styles.nutritionTitle}>
+                  Nutrition · per serving
+                </Text>
                 <View style={styles.nutritionGrid}>
                   {nutritionRows.map((r) => (
                     <View key={r.label} style={styles.nutritionCell}>
@@ -469,12 +486,22 @@ export default function PostScreen() {
             )}
 
             <TouchableOpacity
+              style={styles.mapBtn}
+              onPress={() =>
+                openInMaps((recipe.recipe_name || post.title || "").trim())
+              }
+            >
+              <Ionicons name="location-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.mapBtnText}>Find nearby</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.recordBtn, !!myLog && styles.recordBtnLogged]}
               onPress={onRecordPress}
               disabled={recording}
             >
               {recording ? (
-                <ActivityIndicator color={myLog ? "#2E7D32" : "#FFFFFF"} />
+                <ActivityIndicator color={myLog ? "#2E7D32" : "#C96A0A"} />
               ) : myLog ? (
                 <View style={styles.recordRow}>
                   <Ionicons name="checkmark-circle" size={20} color="#2E7D32" />
@@ -489,7 +516,7 @@ export default function PostScreen() {
                   <Ionicons
                     name="restaurant-outline"
                     size={18}
-                    color="#FFFFFF"
+                    color="#C96A0A"
                   />
                   <Text style={styles.recordText}>Ate it</Text>
                 </View>
@@ -501,7 +528,9 @@ export default function PostScreen() {
               detail.ingredients.map((ing, i) => (
                 <Text key={i} style={styles.bodyText}>
                   • {ing.name}
-                  {formatIngredientAmount(ing) ? ` — ${formatIngredientAmount(ing)}` : ""}
+                  {formatIngredientAmount(ing)
+                    ? ` — ${formatIngredientAmount(ing)}`
+                    : ""}
                   {ing.isUser ? "  (custom)" : ""}
                 </Text>
               ))
@@ -676,11 +705,24 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
+  mapBtn: {
+    height: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FF7A00",
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  mapBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
 
   recordBtn: {
     height: 46,
     borderRadius: 12,
-    backgroundColor: "#FF7A00",
+    backgroundColor: "#FFF5EA",
+    borderWidth: 1,
+    borderColor: "#F6C48F",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
@@ -691,7 +733,7 @@ const styles = StyleSheet.create({
     borderColor: "#2E7D32",
   },
   recordRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  recordText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
+  recordText: { color: "#C96A0A", fontWeight: "700", fontSize: 16 },
   recordTextLogged: { color: "#2E7D32", fontWeight: "600", fontSize: 14 },
 
   sectionHeader: {
@@ -719,7 +761,13 @@ const styles = StyleSheet.create({
   pendingNote: { fontSize: 12, color: "#8E8E93", marginTop: 6, lineHeight: 17 },
   tagBlock: { marginBottom: 14, gap: 8 },
   tagGroupRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  tagGroupLabel: { width: 82, fontSize: 12, fontWeight: "600", color: "#8E8E93", paddingTop: 5 },
+  tagGroupLabel: {
+    width: 82,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#8E8E93",
+    paddingTop: 5,
+  },
   tagGroupChips: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   recipeTagChip: {
     backgroundColor: "#FFF5EA",
@@ -748,7 +796,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 14,
   },
-  nutritionTitle: { fontSize: 13, fontWeight: "700", color: "#333", marginBottom: 10 },
+  nutritionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 10,
+  },
   nutritionGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
   nutritionCell: { width: "25%", alignItems: "center" },
   nutritionValue: { fontSize: 16, fontWeight: "700", color: "#C96A0A" },

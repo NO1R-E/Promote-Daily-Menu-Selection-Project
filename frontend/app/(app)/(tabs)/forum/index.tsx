@@ -278,7 +278,8 @@ export default function ForumIndex() {
     const id = menuPostId;
     setMenuPostId(null);
     if (id === null) return;
-    const mine = posts.find((p) => p.recipe_forum_id === id)?.user_id === user?.id;
+    const mine =
+      posts.find((p) => p.recipe_forum_id === id)?.user_id === user?.id;
     const confirm = mine ? confirmDeletePost : confirmAdminDeletePost;
     setTimeout(
       () =>
@@ -506,7 +507,11 @@ export default function ForumIndex() {
                     style={[styles.iconBtn, styles.iconBtnEnd]}
                     accessibilityLabel="Post options"
                   >
-                    <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
+                    <Ionicons
+                      name="ellipsis-horizontal"
+                      size={20}
+                      color="#666"
+                    />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -529,10 +534,12 @@ export default function ForumIndex() {
         onDelete={menuDelete}
         onClose={() => setMenuPostId(null)}
         canEdit={
-          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id === user?.id
+          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id ===
+          user?.id
         }
         deleteLabel={
-          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id === user?.id
+          posts.find((p) => p.recipe_forum_id === menuPostId)?.user_id ===
+          user?.id
             ? "Delete post"
             : "Remove post (admin)"
         }
@@ -630,7 +637,12 @@ const styles = StyleSheet.create({
   handle: { fontSize: 12, color: "#999", flexShrink: 1 },
   timeAgo: { fontSize: 12, color: "#767676", marginTop: 2 },
   cardImage: { width: "100%", height: 190, borderRadius: 14, marginBottom: 14 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
   statusIcon: { flexShrink: 0 },
   cardTitle: {
     fontSize: 18,
@@ -639,7 +651,12 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginBottom: 6,
   },
-  cardDesc: { fontSize: 14, color: "#5F5F5F", lineHeight: 21, marginBottom: 12 },
+  cardDesc: {
+    fontSize: 14,
+    color: "#5F5F5F",
+    lineHeight: 21,
+    marginBottom: 12,
+  },
   cardFooter: {
     flexDirection: "row",
     alignItems: "center",
@@ -658,9 +675,26 @@ const styles = StyleSheet.create({
   },
   tagText: { fontSize: 12, color: "#555" },
   divider: { height: 1, backgroundColor: "#F0F0F0", marginTop: 14 },
-  cardActions: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: -8 },
-  likeBtn: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingRight: 12 },
-  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+    marginBottom: -8,
+  },
+  likeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingRight: 12,
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   iconBtnEnd: { marginRight: -10 },
   actionContainer: {
     flexDirection: "row",

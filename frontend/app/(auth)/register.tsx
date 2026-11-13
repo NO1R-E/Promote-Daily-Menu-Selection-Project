@@ -24,7 +24,7 @@ import {
   USERNAME_MAX,
   normalizeEmail,
   normalizeUsername,
-  validateEmail,
+  validateSignupEmail,
   validateNewPassword,
   validateUsername,
 } from "@/src/utils/authValidation";
@@ -56,7 +56,7 @@ export default function RegisterScreen() {
   const validateRegistrationInput = async () => {
     const userError = validateUsername(userName);
     if (userError) return userError;
-    const emailError = validateEmail(email);
+    const emailError = validateSignupEmail(email);
     if (emailError) return emailError;
     const passError = validateNewPassword(password, confirmPassword);
     if (passError) return passError;
@@ -75,7 +75,7 @@ export default function RegisterScreen() {
         Alert.alert("Validation Error", validationError);
         return;
       }
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: normalizeEmail(email),
         password,
         options: {
@@ -86,7 +86,6 @@ export default function RegisterScreen() {
       });
       if (error) {
         console.log("Signup error:", error.status, error.message);
-        // a duplicate username that slipped past the check fails inside the signup trigger as a 500
         const dbFail =
           error.status === 500 || /database error saving new user/i.test(error.message);
         Alert.alert(
@@ -94,6 +93,11 @@ export default function RegisterScreen() {
           dbFail
             ? "We couldn't create the account. That username may already be taken, please try another one."
             : error.message,
+        );
+      } else if (data?.user && (data.user.identities?.length ?? 0) === 0) {
+        Alert.alert(
+          "Email Already Registered",
+          "This email already has an account. Please log in, or use Change Password if you forgot it.",
         );
       } else {
         Alert.alert("OTP Sent", "Check your email for the verification code.");

@@ -109,7 +109,11 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
   const [sysError, setSysError] = useState(false);
 
   // ----- แท็บ My ingredients -----
-  const [myMode, setMyMode] = useState<"list" | "form">("list");
+  const [myMode, setMyMode] = useState<"list" | "form" | "edit">("list");
+  const [myEditId, setMyEditId] = useState<number | null>(null);
+  const [releasingId, setReleasingId] = useState<number | null>(null);
+  // my ingredients used by a recipe that still has a visible post -> locked (no edit, no delete), only "remove from my list"
+  const [usedIds, setUsedIds] = useState<Set<number>>(new Set());
   const [myItems, setMyItems] = useState<MyItem[]>([]);
   const [myLoading, setMyLoading] = useState(false);
   const [myQuery, setMyQuery] = useState("");
@@ -130,6 +134,8 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+      const { data: used } = await supabase.rpc("my_ingredients_in_live_use");
+      setUsedIds(new Set(((used as (number | string)[] | null) ?? []).map(Number)));
       setMyItems((data as unknown as MyItem[]) || []);
     } catch (error: any) {
       console.error("Error loading user ingredients:", error?.message || error);
@@ -203,14 +209,49 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
         // ถูกใช้อยู่ในสูตรของโพสต์ จึงลบไม่ได้ (ตามกติกา: ต้องลบโพสต์ที่ใช้ก่อน)
         Alert.alert(
           "Can't delete",
-          "This ingredient is used in a recipe post. Delete that post first, then try again."
+          "This ingredient is used in a recipe, so it can't be deleted or edited. You can remove it from your list instead; it stays in the recipes that use it."
         );
+        loadMine();
       } else {
         Alert.alert("Error", "Failed to delete ingredient");
       }
     } finally {
       setDeletingId(null);
     }
+  };
+
+  // used ingredient: give up ownership (user_id -> null). It stays in the recipes and in the ingredient list.
+  const handleRelease = async (item: MyItem) => {
+    if (!user) return;
+    try {
+      setReleasingId(item.ingredient_id);
+      const { error } = await supabase.rpc("release_my_ingredient", {
+        p_ingredient_id: item.ingredient_id,
+      });
+      if (error) throw error;
+      setMyItems((prev) => prev.filter((i) => i.ingredient_id !== item.ingredient_id));
+    } catch (error: any) {
+      console.log("Error releasing ingredient:", error?.message || error);
+      if (String(error?.message || "").includes("NOT_IN_USE")) {
+        Alert.alert("Not needed", "No recipe uses this ingredient any more. You can delete it instead.");
+        loadMine();
+      } else {
+        Alert.alert("Error", "Failed to remove ingredient from your list");
+      }
+    } finally {
+      setReleasingId(null);
+    }
+  };
+
+  const confirmRelease = (item: MyItem) => {
+    Alert.alert(
+      "Remove from my list",
+      `"${displayName(item.norm_en, item.norm_th)}" is used in recipes, so it stays there and in the ingredient list. It will no longer be yours: you won't be able to edit or delete it.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => handleRelease(item) },
+      ]
+    );
   };
 
   const confirmDelete = (item: MyItem) => {
@@ -238,7 +279,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
   );
 
   const editing = editId !== null;
-  const showFooter = !editing && !(tab === "mine" && myMode === "form");
+  const showFooter = !editing && !(tab === "mine" && myMode !== "list");
 
   const renderEditBtn = (id: number) =>
     isAdmin ? (
@@ -448,19 +489,45 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                         </TouchableOpacity>
                         {verified ? (
                           renderEditBtn(it.ingredient_id)
-                        ) : (
+                        ) : usedIds.has(it.ingredient_id) ? (
+                          // used by a recipe: locked, the owner can only give it up
                           <TouchableOpacity
                             style={styles.deleteBtn}
-                            onPress={() => confirmDelete(it)}
-                            disabled={deletingId !== null}
+                            onPress={() => confirmRelease(it)}
+                            disabled={releasingId !== null}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           >
-                            {deletingId === it.ingredient_id ? (
+                            {releasingId === it.ingredient_id ? (
                               <ActivityIndicator size="small" color="#FF3B30" />
                             ) : (
-                              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                              <Ionicons name="remove-circle-outline" size={20} color="#FF3B30" />
                             )}
                           </TouchableOpacity>
+                        ) : (
+                          <>
+                            <TouchableOpacity
+                              style={styles.deleteBtn}
+                              onPress={() => {
+                                setMyEditId(it.ingredient_id);
+                                setMyMode("edit");
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="create-outline" size={20} color={ORANGE_DARK} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.deleteBtn}
+                              onPress={() => confirmDelete(it)}
+                              disabled={deletingId !== null}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              {deletingId === it.ingredient_id ? (
+                                <ActivityIndicator size="small" color="#FF3B30" />
+                              ) : (
+                                <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                              )}
+                            </TouchableOpacity>
+                          </>
                         )}
 
                         {renderToggleMark(on)}
@@ -483,6 +550,29 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                 onCancel={() => setMyMode("list")}
                 onSaved={() => {
                   setMyMode("list");
+                  loadMine();
+                }}
+              />
+            </ScrollView>
+          )}
+
+          {/* owner edit of an unverified ingredient that no recipe uses yet */}
+          {!editing && tab === "mine" && myMode === "edit" && myEditId !== null && (
+            <ScrollView
+              style={styles.body}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <IngredientForm
+                mode="user"
+                editIngredientId={myEditId}
+                onCancel={() => {
+                  setMyMode("list");
+                  setMyEditId(null);
+                }}
+                onSaved={() => {
+                  setMyMode("list");
+                  setMyEditId(null);
                   loadMine();
                 }}
               />

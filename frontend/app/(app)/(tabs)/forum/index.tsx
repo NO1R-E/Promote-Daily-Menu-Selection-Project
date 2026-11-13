@@ -17,12 +17,12 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import ReportModal from "@/components/ReportModal";
 import PostMenuSheet from "@/components/PostMenuSheet";
 import RecipeStatusBadge from "@/components/RecipeStatusBadge";
+import SearchBar from "@/components/search/SearchBar";
 import {
   consumeForumDirty,
   forumSelect,
   normalizePost,
   reportPost,
-  searchForumIds,
   setLike,
   setSaved,
 } from "@/src/api/forum";
@@ -31,6 +31,7 @@ import {
   confirmDeletePost,
   openEditPost,
 } from "@/src/utils/postActions";
+import { isEmptySearch, searchRecipeIds } from "@/src/api/search";
 import { ForumPost } from "@/src/types/ForumType";
 import { timeAgo } from "@/src/utils/date";
 
@@ -38,8 +39,7 @@ type Tab = "hot" | "recent" | "saved" | "own";
 
 const PAGE_SIZE = 5;
 
-// ตัดช่องว่างและ # นำหน้าออก (แฮชแท็กในฐานข้อมูลเก็บแบบไม่มี #)
-const normalizeQuery = (s: string) => s.trim().replace(/^#+/, "").trim();
+const normalizeQuery = (s: string) => (isEmptySearch(s) ? "" : s.trim());
 
 export default function ForumIndex() {
   const { user, isAdmin } = useAuth();
@@ -89,7 +89,7 @@ export default function ForumIndex() {
       let ids: number[] | null = null;
       if (activeQuery) {
         if (reset) {
-          ids = await searchForumIds(activeQuery);
+          ids = await searchRecipeIds(activeQuery);
           searchIdsRef.current = ids;
         } else {
           ids = searchIdsRef.current;
@@ -120,7 +120,7 @@ export default function ForumIndex() {
         q = q.eq("recipe_forum_likes.user_id", user.id);
         q = q.eq("recipe_forum_saved.user_id", user.id);
       }
-      if (ids) q = q.in("recipe_forum_id", ids);
+      if (ids) q = q.in("recipe_id", ids); // ids are recipe ids: every visible post of those recipes
 
       if (tab === "own") {
         q = q.eq("user_id", user?.id as string);
@@ -378,31 +378,12 @@ export default function ForumIndex() {
           )
         }
         ListHeaderComponent={
-          <View style={styles.searchSection}>
-            <Ionicons
-              name="search-outline"
-              size={20}
-              color="#999"
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search title, recipe, tag (thai, vegan, spicy)"
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-            {loading && posts.length > 0 ? (
-              <ActivityIndicator size="small" color="#FF7A00" />
-            ) : searchQuery.length > 0 ? (
-              <TouchableOpacity onPress={() => setSearchQuery("")}>
-                <Ionicons name="close-circle" size={20} color="#BBB" />
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          <SearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            loading={loading && posts.length > 0}
+            style={styles.searchBar}
+          />
         }
         renderItem={({ item }) => {
           const recipe = item.recipes!;
@@ -601,20 +582,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   plusBadgeText: { color: "#FFF", fontSize: 9, fontWeight: "bold" },
-  searchSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFF",
-    marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    height: 46,
-    borderWidth: 1,
-    borderColor: "#EBEBEB",
-  },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15, color: "#333" },
+  searchBar: { marginHorizontal: 16, marginVertical: 12 },
   card: {
     backgroundColor: "#FFF",
     marginHorizontal: 16,

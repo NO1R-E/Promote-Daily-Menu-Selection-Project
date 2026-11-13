@@ -75,15 +75,6 @@ export async function reportPost(userId: string, postId: number, reason: string)
   if (error) throw error;
 }
 
-export async function searchForumIds(query: string): Promise<number[]> {
-  const { data, error } = await supabase.rpc("search_forum_ids", {
-    p_query: query,
-    p_limit: 200,
-  });
-  if (error) throw error;
-  return (data as number[] | null) ?? [];
-}
-
 export async function deletePost(postId: number): Promise<void> {
   const { error } = await supabase.rpc("delete_my_post", { p_forum_id: postId });
   if (error) throw error;

@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { Modal, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/config/supabase";
+import { loadTags as loadTagCache } from "@/src/api/tags";
 import {
   ORANGE,
   ORANGE_BORDER,
@@ -95,49 +95,24 @@ export default function IngredientTagPicker({
     setLoadError(false);
     try {
       // ดึงกลุ่มกับแท็กที่ใช้งานอยู่พร้อมกัน (กรองกลุ่มตาม onlyGroupIds / excludeGroupIds)
-      let tagQuery: any = supabase
-        .from("tags")
-        .select("tag_id, tag_name, group_id, description")
-        .eq("is_active", true)
-        .order("tag_name", { ascending: true });
+      // tags and groups come from the shared cache (src/api/tags.ts), not from a new request
+      const cached = await loadTagCache();
+      const inScope = (gid: number) =>
+        onlyGroupIds && onlyGroupIds.length > 0
+          ? onlyGroupIds.includes(gid)
+          : !(excludeGroupIds && excludeGroupIds.includes(gid));
 
-      if (onlyGroupIds && onlyGroupIds.length > 0) {
-        tagQuery = tagQuery.in("group_id", onlyGroupIds);
-      } else if (excludeGroupIds && excludeGroupIds.length > 0) {
-        tagQuery = tagQuery.not(
-          "group_id",
-          "in",
-          `(${excludeGroupIds.join(",")})`,
-        );
-      }
-
-      const [groupRes, tagRes] = await Promise.all([
-        supabase
-          .from("tag_groups")
-          .select("group_id, group_name")
-          .order("group_id", { ascending: true }),
-        tagQuery,
-      ]);
-
-      if (tagRes.error) throw tagRes.error;
-      const tagList = ((tagRes.data as Tag[]) || []).filter(
-        (t) => t.group_id != null,
-      );
+      const tagList: Tag[] = cached.tags
+        .filter((t) => t.is_active && inScope(t.group_id))
+        .sort((a, b) => a.tag_name.localeCompare(b.tag_name));
 
       const groupMap = new Map<number, Group>();
-      if (!groupRes.error && groupRes.data) {
-        (groupRes.data as any[]).forEach((g) =>
-          groupMap.set(g.group_id, {
-            group_id: g.group_id,
-            group_name: g.group_name || `Group ${g.group_id}`,
-          }),
-        );
-      } else if (groupRes.error) {
-        console.warn(
-          "Could not read tag_groups, deriving groups from tags:",
-          groupRes.error.message,
-        );
-      }
+      cached.groups.forEach((g) =>
+        groupMap.set(g.group_id, {
+          group_id: g.group_id,
+          group_name: g.group_name || `Group ${g.group_id}`,
+        }),
+      );
 
       // แท็กที่อยู่ในกลุ่มที่ไม่มีในรายการกลุ่ม ก็ต้องไม่หายไป
       tagList.forEach((t) => {

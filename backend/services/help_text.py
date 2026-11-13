@@ -1,38 +1,17 @@
 import re
 from typing import Optional
 
-HELP_EN = (
+HELP_TEXT = (
     "I can help you decide what to eat. Try:\n"
     "• \"Recommend me a lunch\": one meal idea\n"
     "• \"Plan my day\": breakfast, lunch, dinner and a snack\n"
     "• \"A Thai recipe\" or \"a meat meal\": pick by cuisine or food type\n"
     "• \"Something spicy\" or \"high protein dinner\": match your taste or goal\n"
-    "The more you like or skip, the better the picks get."
-)
-
-HELP_TH = (
-    "ฉันช่วยแนะนำเมนูให้ได้ ลองพิมพ์ เช่น\n"
-    "• \"แนะนำมื้อเที่ยง\": เมนูเดียว\n"
-    "• \"จัดเมนูวันนี้\": มื้อเช้า กลางวัน เย็น และของว่าง\n"
-    "• \"อยากกินอาหารไทย\" หรือ \"เมนูเนื้อสัตว์\": เลือกตามประเภทอาหาร\n"
-    "• \"เผ็ดๆ\" หรือ \"มื้อเย็นโปรตีนสูง\": ปรับตามรสชาติหรือเป้าหมายของคุณ\n"
-    "ยิ่งกดชอบหรือข้าม ระบบจะแนะนำได้ตรงใจมากขึ้น"
-)
-
-UNCLEAR_EN = (
-    "Sorry, I didn't catch that. I can recommend a meal or plan your day. "
-    "Try \"recommend me a lunch\", \"plan my day\" or \"a Thai recipe\". "
-    "Type !help to see everything I can do."
-)
-
-UNCLEAR_TH = (
-    "ขอโทษนะ ฉันไม่เข้าใจข้อความนี้ ฉันแนะนำเมนูหรือจัดมื้ออาหารให้ได้ "
-    "ลองพิมพ์ \"แนะนำมื้อเที่ยง\", \"จัดเมนูวันนี้\" หรือ \"อยากกินอาหารไทย\" "
-    "พิมพ์ !help เพื่อดูวิธีใช้ทั้งหมด"
+    "The more you like or skip, the better the picks get. Type !help any time to see this again."
 )
 
 _KEY_ROWS = ("qwertyuiop", "asdfghjkl", "zxcvbnm")
-_KEY_RUNS = {row[i:i + 4] for row in _KEY_ROWS for i in range(len(row) - 3)}   # "asdf", "sdfg", "zxcv" ...
+_KEY_RUNS = {row[i:i + 4] for row in _KEY_ROWS for i in range(len(row) - 3)}   
 _THAI = re.compile(r"[฀-๿]")
 _LETTER = re.compile(r"[A-Za-z฀-๿]")
 _HELP_PHRASES = {
@@ -45,12 +24,12 @@ def has_thai(text: str) -> bool:
     return bool(_THAI.search(text))
 
 
-def help_reply(text: str) -> str:
-    return HELP_TH if has_thai(text) else HELP_EN
+def help_reply(text: str = "") -> str:
+    return HELP_TEXT
 
 
-def unclear_reply(text: str) -> str:
-    return UNCLEAR_TH if has_thai(text) else UNCLEAR_EN
+def unclear_reply(text: str = "") -> str:
+    return HELP_TEXT
 
 
 def is_help_request(text: str) -> bool:

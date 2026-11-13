@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Dropdown } from "react-native-element-dropdown";
 import { supabase } from "@/src/config/supabase";
+import { loadTags } from "@/src/api/tags";
 import { useAuth } from "@/src/contexts/AuthContext";  
 
 const genderOptions = [
@@ -132,15 +133,10 @@ export default function DisplayPersonalDataScreen() {
     const fetchTagOptions = async () => {
       setTagsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("tags")
-          .select("tag_id, tag_name, group_id")
-          .in("group_id", [ALLERGEN_GROUP_ID, DIET_GROUP_ID]) // [TAG GROUP]
-          .order("tag_name", { ascending: true });
-
-        if (error) throw error;
-
-        const rows: any[] = data || [];
+        const { tags } = await loadTags();
+        const rows = tags
+          .filter((t) => [ALLERGEN_GROUP_ID, DIET_GROUP_ID].includes(t.group_id)) // [TAG GROUP]
+          .sort((a, b) => a.tag_name.localeCompare(b.tag_name));
         setAllergyOptions(
           rows
             .filter((t) => t.group_id === ALLERGEN_GROUP_ID)

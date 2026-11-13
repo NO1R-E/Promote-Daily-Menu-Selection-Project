@@ -6,7 +6,6 @@ from schemas import MealRecommendation
 from services.preferences import clean_preferences, preferences_to_weights
 from services.supabase_service import supabase
 
-REPEAT_WINDOW_DAYS = 3
 MAX_FOCUS_TRIES = 3
 
 
@@ -21,7 +20,7 @@ async def _liked_main_tags(user_id: str) -> list:
 
 
 async def _recent_ids(user_id: str) -> List[int]:
-    return await _rpc("recent_recipe_ids", {"p_user_id": user_id, "p_days": REPEAT_WINDOW_DAYS}) or []
+    return await _rpc("excluded_recipe_ids", {"p_user_id": user_id}) or []
 
 
 async def calculate_meal_recommendations(
@@ -36,7 +35,7 @@ async def calculate_meal_recommendations(
     rotate: bool = True,
     focus_tag: Optional[int] = None,     # a tag the user explicitly asked for: used as is, no random rotation, no fallback
     focus_name: Optional[str] = None,
-    relax: bool = True,         # False = never drop the 3-day rule: say "no more" instead of repeating a recent meal
+    relax: bool = True,         # False = never drop the exclusion list: say "no more" instead of repeating a recent meal
 ) -> List[MealRecommendation]:
     prefs = clean_preferences(preferences)
     weights = preferences_to_weights(prefs)
@@ -66,17 +65,15 @@ async def calculate_meal_recommendations(
                 focus = tag
                 break
             if not unfiltered_done:
-                # a food-group filter only NARROWS the candidates: if nothing is left without it,
-                # nothing is left with it either -> stop here instead of running the slow query again
                 unfiltered_done = True
                 fallback = await _rpc("recommend_meals", params(exclude, None))
                 if not fallback:
                     break
-    if not rows and not requested:                                    # ไม่มีสูตรตรงหมวดที่ชอบ -> ไม่จำกัดหมวด
+    if not rows and not requested:
         rows = fallback
         if not rows and not unfiltered_done:
             rows = await _rpc("recommend_meals", params(exclude, None))
-    if not rows and recent and relax:                         # สูตรเหลือน้อยจนหมด -> ผ่อนกฎ 3 วัน
+    if not rows and recent and relax:                         # almost no recipes left -> relax the exclusion list
         rows = await _rpc("recommend_meals", params(session_exclude, focus_tag if requested else None))
 
     tuned = f", tuned for {', '.join(p.replace('_', ' ') for p in prefs)}" if prefs else ""

@@ -28,6 +28,7 @@ import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { useHealth } from "@/src/contexts/HealthContext";
 import { estimateIngredient } from "@/src/api/ingredientAi";
+import { loadTags } from "@/src/api/tags";
 import IngredientTagPicker from "./IngredientTagPicker";
 import { fetchOwnUnits } from "./units";
 import {
@@ -54,15 +55,10 @@ const DIET_NOTE =
 const dietKey = (n: string) => n.trim().toLowerCase().replace(/^non-/, "");
 const isJae = (k: string) => /jae|เจ/.test(k);
 async function withDietOpposites(ids: number[]): Promise<number[]> {
-  const { data, error } = await supabase
-    .from("tags")
-    .select("tag_id, tag_name")
-    .eq("group_id", DIET_GROUP_ID);
-  if (error) throw error;
-  const diet = (data ?? []).map((t: any) => ({
-    id: Number(t.tag_id),
-    name: String(t.tag_name),
-  }));
+  const { tags } = await loadTags();
+  const diet = tags
+    .filter((t) => t.group_id === DIET_GROUP_ID)
+    .map((t) => ({ id: t.tag_id, name: t.tag_name }));
   const isNon = (n: string) => /^non-/i.test(n.trim());
   const nonIds = new Set(diet.filter((t) => isNon(t.name)).map((t) => t.id));
   const base = ids.filter((id) => !nonIds.has(id));
@@ -136,6 +132,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   FORBIDDEN: "Only admins can edit system ingredients.",
   INGREDIENT_NOT_FOUND: "This ingredient no longer exists.",
   ONLY_VERIFIED_EDITABLE: "Only system (verified) ingredients can be edited.",
+  NOT_ALLOWED: "You can only edit your own unverified ingredients.",
+  INGREDIENT_IN_USE:
+    "A recipe already uses this ingredient, so it can no longer be edited. You can remove it from your list instead.",
 };
 
 const getErrorMessage = (error: any): string => {
@@ -155,15 +154,17 @@ export default function IngredientForm({
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
   const MAX_UNITS = isAdmin ? MAX_UNITS_ADMIN : 1;
-  const isEdit = isAdmin && editIngredientId != null;
+  const isEdit = editIngredientId != null; // admins edit any ingredient; owners only their own unverified, unused one (checked by the database)
   const { user } = useAuth();
   const { isServerHealthy } = useHealth();
   const heading =
     title ??
     (isEdit
-      ? verifyOnSave
-        ? "Verify Ingredient (Admin)"
-        : "Edit Ingredient (Admin)"
+      ? !isAdmin
+        ? "Edit Ingredient"
+        : verifyOnSave
+          ? "Verify Ingredient (Admin)"
+          : "Edit Ingredient (Admin)"
       : isAdmin
         ? "Add Ingredient (Admin)"
         : "Add Ingredient");
@@ -366,22 +367,25 @@ export default function IngredientForm({
 
   // Ingredient-scoped tags the AI may choose from (cuisine / recipe-only groups are excluded)
   const loadAiTags = async () => {
-    const { data, error } = await supabase
-      .from("tags")
-      .select(
-        "tag_id, tag_name, description, group_id, tag_groups!inner(group_name, scope)",
-      )
-      .eq("is_active", true)
-      .in("tag_groups.scope", ["ingredient", "both"])
-      .neq("group_id", CUISINE_GROUP_ID)
-      .not("tag_name", "ilike", "non-%"); // "Non-" tags are added automatically on save, never chosen
-    if (error) throw error;
-    return (data ?? []).map((t: any) => ({
-      id: Number(t.tag_id),
-      name: String(t.tag_name),
-      group: t.tag_groups?.group_name ?? null,
-      description: t.description ?? null,
-    }));
+    const { tags, groups } = await loadTags();
+    const groupOf = new Map(groups.map((g) => [g.group_id, g]));
+    return tags
+      .filter((t) => {
+        const g = groupOf.get(t.group_id);
+        return (
+          t.is_active &&
+          !!g &&
+          (g.scope === "ingredient" || g.scope === "both") &&
+          t.group_id !== CUISINE_GROUP_ID &&
+          !/^non-/i.test(t.tag_name) // "Non-" tags are added automatically on save, never chosen
+        );
+      })
+      .map((t) => ({
+        id: t.tag_id,
+        name: t.tag_name,
+        group: groupOf.get(t.group_id)?.group_name ?? null,
+        description: t.description ?? null,
+      }));
   };
 
   const handleAiFill = async () => {
@@ -435,11 +439,10 @@ export default function IngredientForm({
       setTagIds(result.tag_ids);
       if (dietOn) {
         // picking a diet tag cancels a previous "None"; no diet tag -> the user must still confirm None
-        const { data: dietTags } = await supabase
-          .from("tags")
-          .select("tag_id")
-          .eq("group_id", DIET_GROUP_ID);
-        const dietIds = new Set((dietTags ?? []).map((t: any) => Number(t.tag_id)));
+        const { tags: allTags } = await loadTags();
+        const dietIds = new Set(
+          allTags.filter((t) => t.group_id === DIET_GROUP_ID).map((t) => t.tag_id),
+        );
         if (result.tag_ids.some((id: number) => dietIds.has(id))) {
           setNoneGroups((prev) => prev.filter((g) => g !== DIET_GROUP_ID));
         }
@@ -470,12 +473,15 @@ export default function IngredientForm({
     let allergens: string[] = [];
     let diets: string[] = [];
     if (ids.length > 0) {
-      const { data } = await supabase
-        .from("tags")
-        .select("tag_name, group_id")
-        .in("tag_id", ids)
-        .in("group_id", [ALLERGEN_GROUP_ID, DIET_GROUP_ID]);
-      const rows = (data ?? []) as any[];
+      let allTags: Awaited<ReturnType<typeof loadTags>>["tags"] = [];
+      try {
+        allTags = (await loadTags()).tags;
+      } catch {
+        // no tag names: the confirmation is shown without the allergen / diet lines
+      }
+      const rows = allTags.filter(
+        (t) => ids.includes(t.tag_id) && [ALLERGEN_GROUP_ID, DIET_GROUP_ID].includes(t.group_id),
+      );
       const names = (g: number) =>
         rows
           .filter((t) => Number(t.group_id) === g && !/^non-/i.test(String(t.tag_name)))
@@ -602,14 +608,22 @@ export default function IngredientForm({
       if (isAdmin && !(await confirmAdminSave(finalTagIds))) return;
 
       if (isEdit) {
-        const { error: updErr } = await supabase.rpc("admin_update_ingredient", {
-          p_ingredient_id: editIngredientId,
-          p_name_en: en || null,
-          p_name_th: th || null,
-          p_nutrients: rows,
-          p_tag_ids: finalTagIds,
-          p_verify: verifyOnSave,
-        });
+        const { error: updErr } = isAdmin
+          ? await supabase.rpc("admin_update_ingredient", {
+              p_ingredient_id: editIngredientId,
+              p_name_en: en || null,
+              p_name_th: th || null,
+              p_nutrients: rows,
+              p_tag_ids: finalTagIds,
+              p_verify: verifyOnSave,
+            })
+          : await supabase.rpc("update_my_ingredient", {
+              p_ingredient_id: editIngredientId,
+              p_name_en: en || null,
+              p_name_th: th || null,
+              p_nutrients: rows,
+              p_tag_ids: finalTagIds,
+            });
         if (updErr) throw updErr;
         const { error: unitErr } = await supabase.rpc("set_ingredient_units", {
           p_ingredient_id: editIngredientId,

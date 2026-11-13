@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/config/supabase";
+import { loadTags } from "@/src/api/tags";
 import { OnboardingFormData, UserPref } from "@/src/types/OnboardingType";
 
 type Tag = { tag_id: number; tag_name: string };
@@ -40,19 +40,13 @@ export default function PreferenceForm({
   const loadOptions = () => {
     setLoading(true);
     setLoadError(false);
-    supabase
-      .from("tags")
-      .select("tag_id, tag_name")
-      .eq("group_id", FLAVOR_GROUP_ID)
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading filter tags:", error);
-          setLoadError(true);
-        } else {
-          setOptions(data || []);
-        }
-        setLoading(false);
-      });
+    loadTags()
+      .then(({ tags }) => setOptions(tags.filter((t) => t.group_id === FLAVOR_GROUP_ID)))
+      .catch((error) => {
+        console.error("Error loading filter tags:", error);
+        setLoadError(true);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

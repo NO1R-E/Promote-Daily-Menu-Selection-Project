@@ -21,7 +21,7 @@ import {
 } from "@/components/forms/ingredientCommon";
 import {
   EMAIL_MAX,
-  PASSWORD_MAX,
+  LOGIN_PASSWORD_MAX,
   normalizeEmail,
   validateEmail,
 } from "@/src/utils/authValidation";
@@ -43,7 +43,7 @@ export default function LoginScreen() {
       Alert.alert("Check your details", "Password is required.");
       return;
     }
-    if (password.length > PASSWORD_MAX) {
+    if (password.length > LOGIN_PASSWORD_MAX) {
       Alert.alert("Check your details", "Email or password is incorrect.");
       return;
     }
@@ -87,7 +87,7 @@ export default function LoginScreen() {
           placeholder="Password"
           value={password}
           onChangeText={setPassword}
-          maxLength={PASSWORD_MAX}
+          maxLength={LOGIN_PASSWORD_MAX}
           autoComplete="password"
         />
 
@@ -102,6 +102,15 @@ export default function LoginScreen() {
           ) : (
             <Text style={styles.btnText}>Sign In</Text>
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push("/forgot-password")}
+          style={{ marginTop: 16 }}
+        >
+          <Text style={{ color: "#8E8E93", textAlign: "center", fontWeight: "500" }}>
+            Forgot password?
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity

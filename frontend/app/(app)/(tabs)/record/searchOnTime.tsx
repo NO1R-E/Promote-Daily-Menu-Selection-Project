@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { MEAL_TYPES, MEAL_LABEL, type MealType } from "@/src/api/record";
+import { searchRecipeIds, isEmptySearch } from "@/src/api/search";
+import SearchBar from "@/components/search/SearchBar";
 
 // recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
 // (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
@@ -58,9 +60,15 @@ export default function FoodSearchScreen() {
         .range(from, to)
         .order("recipe_id", { ascending: true });
 
-      // มีคำค้นหาค่อย filter ด้วย ilike ไม่งั้นดึงมาทั้งหมด
-      if (queryText.trim() !== "") {
-        query = query.ilike("recipe_name", `%${queryText.trim()}%`);
+      // มีคำค้นหา: ใช้ฟังก์ชันค้นหาตัวเดียวกับหน้า forum (ชื่อสูตร ชื่อโพสต์ แท็กหลัก วัตถุดิบ)
+      if (!isEmptySearch(queryText)) {
+        const idList = await searchRecipeIds(queryText);
+        if (idList.length === 0) {
+          if (isNewSearch) setRecipes([]);
+          setHasMore(false);
+          return;
+        }
+        query = query.in("recipe_id", idList);
       }
 
       const { data, error } = await query;
@@ -179,24 +187,12 @@ export default function FoodSearchScreen() {
         ))}
       </View>
 
-      {/* กล่องค้นหาเมนู */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="ค้นหาชื่อเมนูอาหาร..."
-          value={searchQuery}
-          onChangeText={(text) => setSearchQuery(text)}
-          returnKeyType="search"
-        />
-        {searchQuery !== "" && (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Ionicons name="close-circle" size={20} color="#8E8E93" />
-          </TouchableOpacity>
-        )}
-      </View>
+      <SearchBar
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        style={styles.searchBar}
+      />
 
-      {/* กำลังโหลดครั้งแรก หรือกำลังบันทึกอยู่ ก็โชว์ spinner แทน list ไปก่อน */}
       {isLoadingRecipes || isSubmitting ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -205,7 +201,6 @@ export default function FoodSearchScreen() {
           </Text>
         </View>
       ) : (
-        /* list เมนู โหลดเพิ่มทีละ 20 ตอนเลื่อนถึงล่าง */
         <FlatList
           data={recipes}
           keyExtractor={(item, index) => `${item.recipe_id}-${index}`}
@@ -258,17 +253,7 @@ const styles = StyleSheet.create({
   mealTypeTextSelected: { color: "#FFFFFF" },
 
   // Style กล่องค้นหา
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F2F2F7",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginBottom: 15,
-  },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 16, color: "#1A1A1A" },
+  searchBar: { marginBottom: 15 },
 
   foodCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#F8F9FA", padding: 12, borderRadius: 16, marginBottom: 12 },
   foodImage: { width: 60, height: 60, borderRadius: 12, marginRight: 15 },

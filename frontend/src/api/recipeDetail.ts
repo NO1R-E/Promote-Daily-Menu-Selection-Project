@@ -1,4 +1,5 @@
 import { supabase } from "@/src/config/supabase";
+import { loadTags } from "@/src/api/tags";
 import { makeIngredientKey } from "@/components/forms/ingredientPickerSheet";
 import type { RecipeFormInitial, StepItem } from "@/components/forms/RecipeForm";
 import { makeStepId } from "@/components/forms/RecipeForm";
@@ -78,12 +79,10 @@ export function stepsFromBody(body: string | null | undefined): DetailStep[] {
 
 // 1) all tag ids of the cuisine group, 2) which of them this recipe has in recipe_tags
 async function fetchCuisine(recipeId: number): Promise<DetailCuisine[]> {
-  const { data: tags, error } = await supabase
-    .from("tags")
-    .select("tag_id, tag_name")
-    .eq("group_id", CUISINE_GROUP);
-  if (error) throw error;
-  const names = new Map<number, string>((tags ?? []).map((t: any) => [Number(t.tag_id), t.tag_name]));
+  const { tags } = await loadTags();
+  const names = new Map<number, string>(
+    tags.filter((t) => t.group_id === CUISINE_GROUP).map((t) => [t.tag_id, t.tag_name]),
+  );
   if (names.size === 0) {
     console.warn("[cuisine] no tags found for group", CUISINE_GROUP);
     return [];
@@ -133,8 +132,8 @@ async function fetchRecipeTags(recipeId: number): Promise<DetailTag[]> {
 }
 
 // recipe_features.allergen_tag_ids = allergens some ingredient contains ("Contains egg" ...).
-// recipe_features.diet_any_tag_ids   = diet tags carried by ANY ingredient, so it holds both "Vegan" and
-// "Non-Vegan" for a dish with meat. A diet label is only true when its "Non-" opposite is missing.
+// recipe_features.diet_tag_ids = the diets the WHOLE recipe satisfies ("who can eat it"), already worked out
+// by the database from the ingredients' "Non-..." tags.
 const toIds = (v: any): number[] => {
   let arr = v;
   if (typeof arr === "string") {
@@ -150,7 +149,7 @@ const toIds = (v: any): number[] => {
 async function fetchRecipeFilters(recipeId: number): Promise<DetailFilters | null> {
   const { data, error } = await supabase
     .from("recipe_features")
-    .select("allergen_tag_ids, diet_any_tag_ids")
+    .select("allergen_tag_ids, diet_tag_ids")
     .eq("recipe_id", recipeId)
     .maybeSingle();
   if (error) {
@@ -159,19 +158,18 @@ async function fetchRecipeFilters(recipeId: number): Promise<DetailFilters | nul
   }
   if (!data) return null;
   const allergenIds = toIds(data.allergen_tag_ids);
-  const dietIds = toIds(data.diet_any_tag_ids);
+  const dietIds = toIds(data.diet_tag_ids);
   const ids = Array.from(new Set([...allergenIds, ...dietIds]));
   if (ids.length === 0) return { allergens: [], diets: [] };
 
-  const { data: tags, error: tErr } = await supabase
-    .from("tags")
-    .select("tag_id, tag_name")
-    .in("tag_id", ids);
-  if (tErr) {
-    console.warn("[recipe filters tags]", tErr.message);
+  let name: Map<number, string>;
+  try {
+    const { tags } = await loadTags();
+    name = new Map<number, string>(tags.map((t) => [t.tag_id, t.tag_name]));
+  } catch (e: any) {
+    console.warn("[recipe filters tags]", e?.message ?? e);
     return null;
   }
-  const name = new Map<number, string>((tags ?? []).map((t: any) => [Number(t.tag_id), String(t.tag_name)]));
 
   const allergens = allergenIds
     .map((id) => name.get(id) ?? "")
@@ -180,9 +178,7 @@ async function fetchRecipeFilters(recipeId: number): Promise<DetailFilters | nul
     .map((n) => n.charAt(0).toUpperCase() + n.slice(1));
 
   const present = new Set(dietIds.map((id) => (name.get(id) ?? "").toLowerCase()));
-  const diets = ["Vegan", "Vegetarian", "Halal", "Jae"].filter(
-    (p) => present.has(p.toLowerCase()) && !present.has(`non-${p.toLowerCase()}`),
-  );
+  const diets = ["Vegan", "Vegetarian", "Halal", "Jae"].filter((p) => present.has(p.toLowerCase()));
   return { allergens, diets };
 }
 

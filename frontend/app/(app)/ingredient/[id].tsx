@@ -34,6 +34,8 @@ type Info = {
   nameEn: string | null;
   nameTh: string | null;
   status: string | null;
+  ownerId: string | null;
+  liveUse: boolean; // used by a recipe that still has a visible post
   nutrients: NutrientLine[];
   tagGroups: TagGroup[];
   users: number;
@@ -46,7 +48,7 @@ const fmt = (v: number) => String(Math.round(v * 100) / 100);
 export default function IngredientInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const ingredientId = Number(id);
 
@@ -59,11 +61,11 @@ export default function IngredientInfoScreen() {
     setLoading(true);
     setError(null);
     try {
-      const [ing, pop] = await Promise.all([
+      const [ing, pop, live] = await Promise.all([
         supabase
           .from("ingredients")
           .select(
-            "ingredient_id, norm_en, norm_th, status, ingredient_nutrients(amount, nutrients(nutrient_name, nutrient_unit)), ingredient_tags(tags(tag_name, tag_groups(group_name, sort_order)))",
+            "ingredient_id, norm_en, norm_th, status, user_id, ingredient_nutrients(amount, nutrients(nutrient_name, nutrient_unit)), ingredient_tags(tags(tag_name, tag_groups(group_name, sort_order)))",
           )
           .eq("ingredient_id", ingredientId)
           .maybeSingle(),
@@ -72,6 +74,7 @@ export default function IngredientInfoScreen() {
           .select("users_count, recipes_count")
           .eq("ingredient_id", ingredientId)
           .maybeSingle(),
+        supabase.rpc("ingredient_in_live_use", { p_ingredient_id: ingredientId }),
       ]);
       if (ing.error) throw ing.error;
       if (!ing.data) throw new Error("This ingredient no longer exists.");
@@ -110,6 +113,8 @@ export default function IngredientInfoScreen() {
         nameEn: d.norm_en ?? null,
         nameTh: d.norm_th ?? null,
         status: d.status ?? null,
+        ownerId: d.user_id ?? null,
+        liveUse: live.data !== false, // unknown -> treated as in use (no Edit button)
         nutrients,
         tagGroups: Array.from(groups.values()).sort((a, b) => a.order - b.order),
         users: Number(pop.data?.users_count) || 0,
@@ -163,7 +168,7 @@ export default function IngredientInfoScreen() {
           showsVerticalScrollIndicator={false}
         >
           <IngredientForm
-            mode="admin"
+            mode={isAdmin ? "admin" : "user"}
             editIngredientId={info.id}
             verifyOnSave={mode === "verify"}
             onCancel={() => setMode("view")}
@@ -226,6 +231,20 @@ export default function IngredientInfoScreen() {
                   <Text style={styles.adminBtnText}>Edit & verify</Text>
                 </TouchableOpacity>
               )}
+            </View>
+          )}
+
+          {/* owner of an unverified ingredient that no recipe uses yet (the database re-checks this on save) */}
+          {!isAdmin && !verified && !!user && info.ownerId === user.id && !info.liveUse && (
+            <View style={styles.adminRow}>
+              <TouchableOpacity
+                style={[styles.adminBtn, styles.adminBtnGhost]}
+                onPress={() => setMode("edit")}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="create-outline" size={18} color={ORANGE_DARK} />
+                <Text style={styles.adminBtnGhostText}>Edit</Text>
+              </TouchableOpacity>
             </View>
           )}
 

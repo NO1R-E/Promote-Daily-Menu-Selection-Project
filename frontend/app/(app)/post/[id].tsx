@@ -65,7 +65,6 @@ export default function PostScreen() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [recording, setRecording] = useState(false);
 
-
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
@@ -99,7 +98,6 @@ export default function PostScreen() {
     [postId, user?.id],
   );
 
-
   useFocusEffect(
     useCallback(() => {
       load(hasLoaded.current);
@@ -130,6 +128,12 @@ export default function PostScreen() {
     Linking.openURL(url).catch(() =>
       Alert.alert("Couldn't open Maps", "Please try again."),
     );
+  };
+
+  // ingredient info page (nutrients, tags, verified status); back returns to this post
+  const openIngredient = (ingredientId: number | string | null | undefined) => {
+    if (ingredientId == null) return;
+    router.push(`/(app)/ingredient/${ingredientId}` as any);
   };
 
   const goBack = () => {
@@ -527,7 +531,14 @@ export default function PostScreen() {
             {detail && detail.ingredients.length > 0 ? (
               detail.ingredients.map((ing, i) => (
                 <Text key={i} style={styles.bodyText}>
-                  • {ing.name}
+                  • 
+                  <Text
+                    style={styles.ingLink}
+                    onPress={() => openIngredient(ing.ingredient_id)}
+                    accessibilityRole="link"
+                  >
+                    {ing.name}
+                  </Text>
                   {formatIngredientAmount(ing)
                     ? ` — ${formatIngredientAmount(ing)}`
                     : ""}
@@ -537,7 +548,14 @@ export default function PostScreen() {
             ) : recipe.recipe_ingredients.length > 0 ? (
               recipe.recipe_ingredients.map((ri, i) => (
                 <Text key={i} style={styles.bodyText}>
-                  • {ri.ingredients?.norm_en ?? "Unknown ingredient"}
+                  • 
+                  <Text
+                    style={styles.ingLink}
+                    onPress={() => openIngredient(ri.ingredients?.ingredient_id)}
+                    accessibilityRole="link"
+                  >
+                    {ri.ingredients?.norm_en ?? "Unknown ingredient"}
+                  </Text>
                   {ri.weight_g ? ` — ${ri.weight_g}g` : ""}
                 </Text>
               ))
@@ -744,6 +762,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bodyText: { fontSize: 14, color: "#555", lineHeight: 22, marginBottom: 8 },
+  ingLink: {
+    color: "#C96A0A",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
   cuisineChip: {
     flexDirection: "row",
     alignItems: "center",

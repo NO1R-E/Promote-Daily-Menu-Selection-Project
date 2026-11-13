@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/src/config/supabase";
+import { loadTags } from "@/src/api/tags";
 import { OnboardingFormData } from "@/src/types/OnboardingType";
 
 type Tag = { tag_id: number; tag_name: string; group_id: number };
@@ -40,19 +40,15 @@ export default function AllergiesForm({
   const loadOptions = () => {
     setLoading(true);
     setLoadError(false);
-    supabase
-      .from("tags")
-      .select("tag_id, tag_name, group_id")
-      .in("group_id", [ALLERGEN_GROUP_ID, DIET_GROUP_ID])
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading filter tags:", error);
-          setLoadError(true);
-        } else {
-          setOptions(data || []);
-        }
-        setLoading(false);
-      });
+    loadTags()
+      .then(({ tags }) =>
+        setOptions(tags.filter((t) => [ALLERGEN_GROUP_ID, DIET_GROUP_ID].includes(t.group_id))),
+      )
+      .catch((error) => {
+        console.error("Error loading filter tags:", error);
+        setLoadError(true);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

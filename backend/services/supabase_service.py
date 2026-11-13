@@ -105,6 +105,69 @@ async def get_or_create_room(user_id: str, room_id: Optional[str], initial_messa
     return str(response.data[0]["room_id"])
 
 
+_COOK_CACHE: Dict[int, tuple] = {}     # recipe_id -> (loaded_at, recipe)
+_COOK_TTL_S = 120                       # every Next / Back would otherwise cost five database calls
+
+
+async def fetch_cook_recipe(recipe_id: int) -> Optional[dict]:
+    """Recipe data for cooking mode: name, ingredient lines and ordered step texts.
+    None when the recipe is gone or has no visible forum post (deleted posts are only hidden).
+    Raises when the database can't be reached, so the caller can tell "gone" from "try again".
+
+    Runs on the event-loop thread like save_chat_turn / get_or_create_room: the shared supabase client is not
+    thread-safe, and a to_thread call overlapping the background save raised WinError 10035."""
+    def _load():
+        live = (supabase.table("recipe_forum").select("recipe_id")
+                .eq("recipe_id", recipe_id).eq("is_hidden", False).limit(1).execute())
+        if not live.data:
+            return None
+        rec = (supabase.table("recipes").select("recipe_name")
+               .eq("recipe_id", recipe_id).limit(1).execute())
+        if not rec.data:
+            return None
+        steps = (supabase.table("recipe_steps").select("step_no, description")
+                 .eq("recipe_id", recipe_id).order("step_no").execute())
+        ings = (supabase.table("recipe_ingredients")
+                .select("weight_g, qty, units(name_en), ingredients(name_en, norm_en)")
+                .eq("recipe_id", recipe_id).execute())
+        lines = []
+        for r in ings.data or []:
+            ing = r.get("ingredients") or {}
+            name = ing.get("name_en") or ing.get("norm_en")
+            if not name:
+                continue
+            unit = (r.get("units") or {}).get("name_en")
+            if r.get("qty") and unit:
+                q = r["qty"]
+                amount = f"{q:g} {unit}"
+            elif r.get("weight_g"):
+                amount = f"{round(r['weight_g'])} g"
+            else:
+                amount = ""
+            lines.append(f"{name} - {amount}" if amount else name)
+        return {
+            "recipe_id": recipe_id,
+            "name": rec.data[0]["recipe_name"] or "this recipe",
+            "steps": [s["description"].strip() for s in (steps.data or []) if (s.get("description") or "").strip()],
+            "ingredients": lines,
+        }
+    import time
+    hit = _COOK_CACHE.get(recipe_id)
+    if hit and time.time() - hit[0] < _COOK_TTL_S:
+        return hit[1]
+    try:
+        recipe = _load()
+    except Exception as e:
+        print(f"fetch_cook_recipe failed, retrying once: {e}")
+        await asyncio.sleep(0.3)
+        recipe = _load()     # a second failure is raised to the caller
+    if recipe is not None:   # "gone" is never cached
+        _COOK_CACHE[recipe_id] = (time.time(), recipe)
+    else:
+        _COOK_CACHE.pop(recipe_id, None)
+    return recipe
+
+
 async def fetch_recipes_cache():
     global MEAL_CACHE
     TestMode = False  # Set to True for testing with a smaller dataset

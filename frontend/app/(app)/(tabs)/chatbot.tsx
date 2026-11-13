@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { sendChatMessage } from "../../../src/api/sendChatMessage";
 import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
 import { HealthBanner } from "@/components/HealthBanner";
@@ -44,12 +44,25 @@ export default function ChatbotScreen() {
   const [loading, setLoading] = useState(false);
   const { isServerHealthy } = useHealth();
   const { user } = useAuth();
-  const { currentRoom, setCurrentRoom } = useChatRoom();
+  const { currentRoom, setCurrentRoom, cooking, setCooking } = useChatRoom();
+  const [roomReady, setRoomReady] = useState(false); // room history has been loaded (or there is none)
 
   const router = useRouter();
 
   const listRef = useRef<FlatList<MessageItem>>(null);
   const skipFetchRef = useRef(false);
+  // synchronous lock: `loading` is React state and still reads false for a second call in the same tick.
+  // Two sends before the first reply both carry room_id = null and each makes a new room.
+  const sendingRef = useRef(false);
+  // Only the screen the user is looking at may send the opening message. A stacked or hidden copy of this
+  // screen shares the same cooking state and would otherwise send it too (duplicate requests and rooms).
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
   const images = useRecipeImages(
     messages.flatMap((m) =>
       (m.recommendations ?? []).map((r) => Number(r.recipe_id)),
@@ -67,10 +80,12 @@ export default function ChatbotScreen() {
       if (!user?.id) return;
       if (skipFetchRef.current) {
         skipFetchRef.current = false;
+        setRoomReady(true);
         return;
       }
       if (!currentRoom) {
         setMessages([]);
+        setRoomReady(true);
         return;
       }
 
@@ -97,7 +112,10 @@ export default function ChatbotScreen() {
         }));
         setMessages(items);
       }
-      if (!cancelled) setLoading(false);
+      if (!cancelled) {
+        setLoading(false);
+        setRoomReady(true);
+      }
     };
 
     fetchRoomMessages();
@@ -124,26 +142,25 @@ export default function ChatbotScreen() {
     });
   }, [currentRoom]);
 
-  const handleSend = async () => {
-    if (!inputText.trim() || loading || !user?.id || !isServerHealthy) return;
-    const userText = inputText.trim();
+  // no typing or sending while a message is in flight, and from the moment cooking starts until its opening reply
+  const inputLocked =
+    !user?.id || loading || !isServerHealthy || !!cooking?.pendingStart;
+
+  const handleSend = () => {
+    if (!inputText.trim()) return;
+    const text = inputText;
     setInputText("");
+    send(text);
+  };
+
+  const send = async (text: string) => {
+    if (sendingRef.current) return;
+    if (!text.trim() || loading || !user?.id || !isServerHealthy) return;
+    sendingRef.current = true;
+    const userText = text.trim();
     setLoading(true);
 
-    // ห้องที่เปิดอยู่ถูกลบไปแล้ว (จากลิ้นชัก/อุปกรณ์อื่น): ส่งเป็นห้องใหม่ ไม่ส่งเข้าห้องที่ไม่มีอยู่
-    let roomId = currentRoom;
-    if (roomId) {
-      const { data: stillThere, error: roomError } = await supabase
-        .from("chat_rooms")
-        .select("room_id")
-        .eq("room_id", parseInt(roomId, 10))
-        .maybeSingle();
-      if (!roomError && !stillThere) {
-        roomId = null;
-        setMessages([]);
-      }
-    }
-
+    // show the user's bubble at once; the room check below is a network round trip
     const userMsg: MessageItem = {
       id: Date.now().toString(),
       sender: "user",
@@ -151,12 +168,42 @@ export default function ChatbotScreen() {
     };
     setMessages((prev) => [...prev, userMsg]);
 
+    // ห้องที่เปิดอยู่ถูกลบไปแล้ว (จากลิ้นชัก/อุปกรณ์อื่น): ส่งเป็นห้องใหม่ ไม่ส่งเข้าห้องที่ไม่มีอยู่
+    let roomId = currentRoom;
+    if (roomId) {
+      try {
+        const { data: stillThere, error: roomError } = await supabase
+          .from("chat_rooms")
+          .select("room_id")
+          .eq("room_id", parseInt(roomId, 10))
+          .maybeSingle();
+        if (!roomError && !stillThere) {
+          roomId = null;
+          setMessages([userMsg]);
+        }
+      } catch {
+        // the check is best effort; send to the room we have
+      }
+    }
+
     try {
       const data = await sendChatMessage({
         user_id: user.id,
         room_id: roomId,
         message: userText,
+        cooking: cooking
+          ? { recipe_id: cooking.recipe_id, step: cooking.step }
+          : null,
       });
+
+      // cooking mode: the server returns the step to keep, or says cooking is over
+      if (cooking) {
+        if (data.cooking_ended || !data.cooking) setCooking(null);
+        else {
+          const next = data.cooking;
+          setCooking((c) => (c ? { ...c, step: next.step } : c));
+        }
+      }
 
       if (data.room_id && String(data.room_id) !== (roomId ?? "")) {
         const newRoom = String(data.room_id);
@@ -188,7 +235,6 @@ export default function ChatbotScreen() {
       if (
         (botMsg.recommendations?.length ?? 0) > 0 &&
         (__DEV__ || (await shouldAskLike(user.id)))
-
       ) {
         markAskedLike(user.id);
         setLikeState((s) => ({ ...s, [botMsg.id]: "asking" }));
@@ -201,9 +247,26 @@ export default function ChatbotScreen() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      sendingRef.current = false;
       setLoading(false);
     }
   };
+
+  // Opening message of cooking mode: sent once, after the room history has loaded
+  useEffect(() => {
+    if (!cooking?.pendingStart || !focused || !roomReady || loading) return;
+    if (!user?.id || !isServerHealthy) return;
+    console.log("[cook] sending opening message for", cooking.name); // one line per tap = healthy
+    setCooking((c) => (c ? { ...c, pendingStart: false } : c));
+    send(`Cook ${cooking.name}`);
+  }, [
+    cooking?.pendingStart,
+    focused,
+    roomReady,
+    loading,
+    user?.id,
+    isServerHealthy,
+  ]);
 
   // Answer to "Do you like this suggestion?" Yes = like every meal currently shown in that message
   const onAnswerLike = async (messageId: string, liked: boolean) => {
@@ -216,7 +279,8 @@ export default function ChatbotScreen() {
 
   const renderSuggestedActions = () => {
     // หากเริ่มมีข้อความในแชตแล้ว (messages.length > 0) ให้ซ่อนคำแนะนำทั้งหมดทันที
-    if (messages.length > 0) return null;
+    // (cooking mode: the other features are off, so no suggestions either)
+    if (messages.length > 0 || cooking) return null;
 
     return (
       <View style={styles.suggestionsContainer}>
@@ -331,6 +395,21 @@ export default function ChatbotScreen() {
       keyboardVerticalOffset={90}
     >
       <HealthBanner />
+      {cooking && (
+        <View style={styles.cookBanner}>
+          <Ionicons name="flame" size={18} color="#FF7A00" />
+          <Text style={styles.cookBannerText} numberOfLines={1}>
+            Cooking: {cooking.name}
+            {cooking.step > 0 ? ` · step ${cooking.step}` : ""}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setCooking(null)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.cookExit}>Exit</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <FlatList
         ref={listRef}
         data={messages}
@@ -420,17 +499,44 @@ export default function ChatbotScreen() {
 
       {loading && <ActivityIndicator style={styles.loader} color="#FF7A00" />}
 
+      {cooking && (
+        <View
+          style={[
+            styles.cookChips,
+            {
+              backgroundColor: "#F5F5F5",
+              justifyContent: "center",
+              alignItems: "center",
+            },
+          ]}
+        >
+          {["Repeat", "Ingredients", "Back step", "Next step"].map((label) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.cookChip}
+              disabled={inputLocked}
+              onPress={() => send(label)}
+            >
+              <Text style={styles.cookChipText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
-          placeholder="Type a message..."
+          placeholder={
+            cooking ? "Ask about this recipe..." : "Type a message..."
+          }
           value={inputText}
           onChangeText={setInputText}
+          editable={!inputLocked}
         />
         <TouchableOpacity
-          style={[styles.sendBtn, !user?.id && styles.sendBtnDisabled]}
+          style={[styles.sendBtn, inputLocked && styles.sendBtnDisabled]}
           onPress={handleSend}
-          disabled={!user?.id || loading || !isServerHealthy}
+          disabled={inputLocked}
         >
           <Text style={styles.sendText}>Send</Text>
         </TouchableOpacity>
@@ -448,8 +554,6 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15 },
   userText: { color: "#FFFFFF" },
   assistantText: { color: "#000000" },
-
-  // Recommendation Card Styles
   recommendationsList: { marginTop: 8, gap: 10 },
   cardContainer: {
     backgroundColor: "#FFFFFF",
@@ -573,6 +677,41 @@ const styles = StyleSheet.create({
   },
   likeNoText: { color: "#FF7A00", fontWeight: "600", fontSize: 13 },
   likeThanks: { fontSize: 12, color: "#6C6C70", marginTop: 6 },
+
+  cookBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#FFF3E0",
+    borderBottomWidth: 1,
+    borderColor: "#FFEAD5",
+  },
+  cookBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#C96A0A",
+  },
+  cookExit: { fontSize: 13, fontWeight: "700", color: "#B3261E" },
+  cookChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  cookChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FF7A00",
+    backgroundColor: "#FFF5EA",
+  },
+  cookChipText: { fontSize: 13, fontWeight: "600", color: "#C96A0A" },
 
   loader: { marginVertical: 6 },
   inputBar: {

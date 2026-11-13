@@ -8,10 +8,15 @@ class IntentEnum(str, Enum):
     MEAL_PLAN = "meal_plan"
     UNCLEAR = "unclear"   # the message makes no sense: answered with predefined text, never stored as an intent
 
+class CookingState(BaseModel):
+    recipe_id: int
+    step: int = Field(default=0, ge=0, le=50)   # last step shown to the user; 0 = not started
+
 class UserMessageRequest(BaseModel):
     user_id: str
     message: str
     room_id: Optional[str] = None
+    cooking: Optional[CookingState] = None      # present while the user is in cooking mode
 
 class ClassificationResult(BaseModel):
     intent: IntentEnum
@@ -42,6 +47,8 @@ class ChatResponse(BaseModel):
     intent: IntentEnum
     message: str
     recommendations: Optional[List[MealRecommendation]] = None
+    cooking: Optional[CookingState] = None      # the new cooking state to keep (only set in cooking mode)
+    cooking_ended: bool = False                 # true when the client should leave cooking mode
     
 class ChatMessage(BaseModel):
     role: str

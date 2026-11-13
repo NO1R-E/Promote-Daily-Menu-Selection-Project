@@ -38,6 +38,7 @@ import {
   RecipeDetail,
 } from "@/src/api/recipeDetail";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { useChatRoom } from "@/src/contexts/ChatRoomContext";
 import { ForumPost } from "@/src/types/ForumType";
 import { localDateString, timeAgo } from "@/src/utils/date";
 import {
@@ -49,6 +50,7 @@ import {
 export default function PostScreen() {
   const router = useRouter();
   const { user, isAdmin } = useAuth();
+  const { setCooking, setCurrentRoom } = useChatRoom();
   const { id } = useLocalSearchParams<{ id: string }>();
   const postId = Number(id);
 
@@ -134,6 +136,15 @@ export default function PostScreen() {
   const openIngredient = (ingredientId: number | string | null | undefined) => {
     if (ingredientId == null) return;
     router.push(`/(app)/ingredient/${ingredientId}` as any);
+  };
+
+  // cooking mode: the chatbot guides the user through this recipe's steps
+  const startCooking = (recipeId: number, name: string) => {
+    setCurrentRoom(null); // every cooking session gets its own chat room
+    setCooking({ recipe_id: recipeId, name, step: 0, pendingStart: true });
+    // navigate (not push): reuse the chat screen that already exists. A push stacks a second, empty copy that
+    // has to reload the whole room history before it can send the opening message.
+    router.navigate("/(app)/(tabs)/chatbot" as any);
   };
 
   const goBack = () => {
@@ -489,6 +500,21 @@ export default function PostScreen() {
               </View>
             )}
 
+            {!!detail && detail.steps.length > 0 && (
+              <TouchableOpacity
+                style={styles.cookBtn}
+                onPress={() =>
+                  startCooking(
+                    Number(recipe.recipe_id),
+                    (recipe.recipe_name || post.title || "this recipe").trim(),
+                  )
+                }
+              >
+                <Ionicons name="flame-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.cookBtnText}>Cook with the chatbot</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.mapBtn}
               onPress={() =>
@@ -531,7 +557,7 @@ export default function PostScreen() {
             {detail && detail.ingredients.length > 0 ? (
               detail.ingredients.map((ing, i) => (
                 <Text key={i} style={styles.bodyText}>
-                  • 
+                  •
                   <Text
                     style={styles.ingLink}
                     onPress={() => openIngredient(ing.ingredient_id)}
@@ -548,10 +574,12 @@ export default function PostScreen() {
             ) : recipe.recipe_ingredients.length > 0 ? (
               recipe.recipe_ingredients.map((ri, i) => (
                 <Text key={i} style={styles.bodyText}>
-                  • 
+                  •
                   <Text
                     style={styles.ingLink}
-                    onPress={() => openIngredient(ri.ingredients?.ingredient_id)}
+                    onPress={() =>
+                      openIngredient(ri.ingredients?.ingredient_id)
+                    }
                     accessibilityRole="link"
                   >
                     {ri.ingredients?.norm_en ?? "Unknown ingredient"}
@@ -734,6 +762,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   mapBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
+
+  cookBtn: {
+    height: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FF7A00", // same orange as "Find nearby"
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  cookBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
 
   recordBtn: {
     height: 46,

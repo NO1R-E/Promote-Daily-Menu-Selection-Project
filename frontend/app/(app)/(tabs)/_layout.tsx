@@ -299,6 +299,8 @@ function CustomDrawerContent(props: any) {
 
 function PlanHeaderButton() {
   const router = useRouter();
+  const { cooking } = useChatRoom();
+  if (cooking) return null; // every other feature is off while cooking
   return (
     <TouchableOpacity
       style={styles.planHeaderBtn}

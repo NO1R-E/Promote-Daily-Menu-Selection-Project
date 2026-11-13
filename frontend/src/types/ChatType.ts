@@ -16,10 +16,16 @@ export interface MealRecommendation {
   preferences: string[];
 }
 
+export interface CookingPayload {
+  recipe_id: number;
+  step: number;
+}
+
 export interface UserMessagePayload {
   user_id: string;
   room_id: string | null;
   message: string;
+  cooking?: CookingPayload | null; // present while the user is in cooking mode
 }
 
 export interface ChatResponse {
@@ -27,6 +33,8 @@ export interface ChatResponse {
   intent: IntentType;
   message: string;
   recommendations?: MealRecommendation[];
+  cooking?: CookingPayload | null;
+  cooking_ended?: boolean;
 }
 
 export interface MessageItem {

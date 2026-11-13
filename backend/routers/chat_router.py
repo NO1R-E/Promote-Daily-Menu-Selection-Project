@@ -17,7 +17,8 @@ async def chat_endpoint(
             user_id=request.user_id,
             room_id=request.room_id,
             message=request.message,
-            background_tasks=background_tasks
+            background_tasks=background_tasks,
+            cooking=request.cooking
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat execution failed: {str(e)}")

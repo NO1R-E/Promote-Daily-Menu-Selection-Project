@@ -148,10 +148,10 @@ export default function DeleteAccountScreen() {
                     <View style={styles.warningBox}>
                         <Ionicons name="warning-outline" size={22} color="#FF3B30" style={{ marginRight: 10 }} />
                         <Text style={styles.warningText}>
-                            This action cannot be undone. Your account and all of your personal data will be permanently deleted:
+                            This action cannot be undone. Your account and your personal data will be permanently deleted:
                             {"\n"}• profile, health and food preferences
                             {"\n"}• meal records and chat history
-                            {"\n"}• your recipe posts and custom ingredients
+                            {"\n"}Recipes you posted and ingredients you added stay available to other users, without your name.
                         </Text>
                     </View>
 

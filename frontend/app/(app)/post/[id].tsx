@@ -125,7 +125,7 @@ export default function PostScreen() {
   // Open Google maps จาก url ชื่อเมนู + "ร้านอาหาร" (เพื่อให้เจอร้านอาหารที่ขายเมนูนั้น)
   const openInMaps = (dish: string) => {
     const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      `${dish} ร้านอาหาร`,
+      `${dish}`,
     )}`;
     Linking.openURL(url).catch(() =>
       Alert.alert("Couldn't open Maps", "Please try again."),

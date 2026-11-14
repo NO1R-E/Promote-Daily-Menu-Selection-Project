@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { sendChatMessage } from "../../../src/api/sendChatMessage";
+import { getCookTips } from "../../../src/api/getCookTips";
 import { MealRecommendation, MessageItem } from "../../../src/types/ChatType";
 import { HealthBanner } from "@/components/HealthBanner";
 import { useAuth } from "@/src/contexts/AuthContext";
@@ -20,7 +21,6 @@ import { useHealth } from "@/src/contexts/HealthContext";
 import { supabase } from "@/src/config/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { likeMeal } from "@/src/api/record";
-import { markAskedLike, shouldAskLike } from "@/src/utils/likePrompt";
 import { openRecipeInForum } from "@/src/utils/openRecipe";
 import { useRecipeImages } from "@/src/hooks/useRecipeImages";
 import { emitRoomsChanged, onRoomDeleted } from "@/src/utils/chatRoomEvents";
@@ -38,8 +38,24 @@ function parseRecommendations(metadata: string | null): MealRecommendation[] {
   }
 }
 
+function TypingIndicator() {
+  const [dots, setDots] = useState(1);
+  useEffect(() => {
+    const timer = setInterval(() => setDots((d) => (d % 3) + 1), 400);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <View style={[styles.bubble, styles.assistantBubble]}>
+      <Text style={[styles.bubbleText, styles.assistantText]}>
+        Chat is thinking{" .".repeat(dots)}
+      </Text>
+    </View>
+  );
+}
+
 export default function ChatbotScreen() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [waiting, setWaiting] = useState(false);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const { isServerHealthy } = useHealth();
@@ -51,11 +67,9 @@ export default function ChatbotScreen() {
 
   const listRef = useRef<FlatList<MessageItem>>(null);
   const skipFetchRef = useRef(false);
-  // synchronous lock: `loading` is React state and still reads false for a second call in the same tick.
-  // Two sends before the first reply both carry room_id = null and each makes a new room.
+
   const sendingRef = useRef(false);
-  // Only the screen the user is looking at may send the opening message. A stacked or hidden copy of this
-  // screen shares the same cooking state and would otherwise send it too (duplicate requests and rooms).
+  const cookRef = useRef<{ recipe_id: number; step: number } | null>(null);
   const [focused, setFocused] = useState(false);
   useFocusEffect(
     useCallback(() => {
@@ -72,6 +86,7 @@ export default function ChatbotScreen() {
   const [likeState, setLikeState] = useState<
     Record<string, "asking" | "yes" | "no">
   >({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -131,7 +146,7 @@ export default function ChatbotScreen() {
       80,
     );
     return () => clearTimeout(t);
-  }, [messages.length]);
+  }, [messages.length, waiting]);
 
   useEffect(() => {
     return onRoomDeleted((deletedId) => {
@@ -153,12 +168,53 @@ export default function ChatbotScreen() {
     send(text);
   };
 
+  useEffect(() => {
+    cookRef.current = cooking
+      ? { recipe_id: cooking.recipe_id, step: cooking.step }
+      : null;
+  }, [cooking?.recipe_id, cooking?.step]);
+
+  // Tips: ONE request when cooking starts (the server asks the LLM once for the whole recipe). After that a step's
+  // tip is just looked up here, so nothing more is sent. Each tip pops once, the first time its step is shown.
+  const tipsRef = useRef<{
+    recipeId: number;
+    tips: Record<number, string>;
+    shown: Set<number>;
+  } | null>(null);
+
+  const showTipFor = (recipeId: number, step: number) => {
+    const t = tipsRef.current;
+    if (!t || t.recipeId !== recipeId || t.shown.has(step) || !t.tips[step])
+      return;
+    t.shown.add(step);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `tip-${recipeId}-${step}`,
+        sender: "assistant",
+        text: `TIPS: ${t.tips[step]}`,
+        tip: true,
+      },
+    ]);
+  };
+
+  const loadTips = async (recipeId: number) => {
+    tipsRef.current = { recipeId, tips: {}, shown: new Set() };
+    const tips = await getCookTips(recipeId);
+    if (tipsRef.current?.recipeId !== recipeId) return; // cooking ended or another recipe started meanwhile
+    tipsRef.current.tips = tips;
+    const now = cookRef.current;
+    if (now && now.recipe_id === recipeId && now.step > 0)
+      showTipFor(recipeId, now.step); // user was faster than the tips
+  };
+
   const send = async (text: string) => {
     if (sendingRef.current) return;
     if (!text.trim() || loading || !user?.id || !isServerHealthy) return;
     sendingRef.current = true;
     const userText = text.trim();
     setLoading(true);
+    setWaiting(true);
 
     // show the user's bubble at once; the room check below is a network round trip
     const userMsg: MessageItem = {
@@ -232,11 +288,21 @@ export default function ChatbotScreen() {
       );
       setMessages((prev) => [...prev, botMsg]);
 
+      // cooking: a new step was shown ("Step N/M ...") -> pop its tip, if it has one
       if (
-        (botMsg.recommendations?.length ?? 0) > 0 &&
-        (__DEV__ || (await shouldAskLike(user.id)))
+        cooking &&
+        data.cooking &&
+        !data.cooking_ended &&
+        data.cooking.step !== cooking.step &&
+        /^Step \d+\//.test(data.message)
       ) {
-        markAskedLike(user.id);
+        showTipFor(cooking.recipe_id, data.cooking.step);
+      }
+      if (cooking && (data.cooking_ended || !data.cooking))
+        tipsRef.current = null;
+
+      // asked after every suggestion (no cooldown); it is only shown on the newest suggestion, see latestRecId
+      if ((botMsg.recommendations?.length ?? 0) > 0) {
         setLikeState((s) => ({ ...s, [botMsg.id]: "asking" }));
       }
     } catch (err: any) {
@@ -249,6 +315,7 @@ export default function ChatbotScreen() {
     } finally {
       sendingRef.current = false;
       setLoading(false);
+      setWaiting(false);
     }
   };
 
@@ -258,6 +325,7 @@ export default function ChatbotScreen() {
     if (!user?.id || !isServerHealthy) return;
     console.log("[cook] sending opening message for", cooking.name); // one line per tap = healthy
     setCooking((c) => (c ? { ...c, pendingStart: false } : c));
+    loadTips(cooking.recipe_id); // the one LLM call of this cooking session, runs while the intro is shown
     send(`Cook ${cooking.name}`);
   }, [
     cooking?.pendingStart,
@@ -276,6 +344,11 @@ export default function ChatbotScreen() {
       messages.find((m) => m.id === messageId)?.recommendations ?? [];
     await Promise.allSettled(recs.map((r) => likeMeal(Number(r.recipe_id))));
   };
+
+  // the "Do you like this suggestion?" prompt is only shown under the newest message that has meal cards
+  const latestRecId = [...messages]
+    .reverse()
+    .find((m) => (m.recommendations?.length ?? 0) > 0)?.id;
 
   const renderSuggestedActions = () => {
     // หากเริ่มมีข้อความในแชตแล้ว (messages.length > 0) ให้ซ่อนคำแนะนำทั้งหมดทันที
@@ -335,55 +408,86 @@ export default function ChatbotScreen() {
     index: number,
   ) => {
     const img = images[Number(rec.recipe_id)];
+    const cardKey = `${messageId}-${index}-${rec.recipe_id}`;
+    const open = !!expanded[cardKey];
+    const fmt = (n?: number) =>
+      n === undefined || n === null ? "-" : n.toFixed(2);
 
     return (
-      <View
-        key={`${messageId}-${index}-${rec.recipe_id}`}
-        style={styles.cardContainer}
-      >
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => openRecipeInForum(router, rec.recipe_id)}
-        >
-          {!!img && <Image source={{ uri: img }} style={styles.cardImage} />}
-          {!!rec.meal_type && (
-            <Text style={styles.mealTypeTag}>{rec.meal_type}</Text>
-          )}
-          <View style={styles.cardHeader}>
-            <Text style={styles.mealName} numberOfLines={2}>
-              {rec.recipe_name}
-            </Text>
-            {(rec.final_score !== undefined ||
-              rec.health_score !== undefined) && (
-              <View style={styles.scoreBadge}>
-                <Text style={styles.scoreText}>
-                  Score {(rec.final_score ?? rec.health_score ?? 0).toFixed(2)}
+      <View key={cardKey} style={styles.cardContainer}>
+        <View style={styles.cardBody}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => openRecipeInForum(router, rec.recipe_id)}
+          >
+            {!!img && <Image source={{ uri: img }} style={styles.cardImage} />}
+            {!!rec.meal_type && (
+              <Text style={styles.mealTypeTag}>{rec.meal_type}</Text>
+            )}
+            <View style={styles.cardHeader}>
+              <Text style={styles.mealName} numberOfLines={2}>
+                {rec.recipe_name}
+              </Text>
+              {(rec.final_score !== undefined ||
+                rec.health_score !== undefined) && (
+                <View style={styles.scoreBadge}>
+                  <Text style={styles.scoreText}>
+                    Score{" "}
+                    {(rec.final_score ?? rec.health_score ?? 0).toFixed(2)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.nutritionRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeLabel}>Calories:</Text>
+                <Text style={styles.badgeValue}>
+                  {Math.round(rec.calories ?? 0)} kcal
                 </Text>
               </View>
-            )}
-          </View>
-
-          <View style={styles.nutritionRow}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeLabel}>Calories:</Text>
-              <Text style={styles.badgeValue}>
-                {Math.round(rec.calories ?? 0)} kcal
-              </Text>
+              <View style={styles.badge}>
+                <Text style={styles.badgeLabel}>Protein:</Text>
+                <Text style={styles.badgeValue}>
+                  {Math.round(rec.protein ?? 0)} g
+                </Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity
+                onPress={() =>
+                  setExpanded((e) => ({ ...e, [cardKey]: !e[cardKey] }))
+                }
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.chevronBtn}
+              >
+                <Ionicons
+                  name={open ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color="#8E8E93"
+                />
+              </TouchableOpacity>
             </View>
-            <View style={styles.badge}>
-              <Text style={styles.badgeLabel}>Protein:</Text>
-              <Text style={styles.badgeValue}>
-                {Math.round(rec.protein ?? 0)} g
-              </Text>
-            </View>
-          </View>
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.reasonBox}>
+        {open && (
+          <View style={styles.flap}>
             <Text style={styles.reasonTitle}>Why this meal?</Text>
             <Text style={styles.reasonText}>{rec.reason}</Text>
+            <View style={styles.scoreRow}>
+              <Text style={styles.scoreItem}>
+                Health {fmt(rec.health_score)}
+              </Text>
+              <Text style={styles.scoreItem}>
+                Liking {fmt(rec.liking_score)}
+              </Text>
+              <Text style={styles.scoreItem}>
+                Novelty {fmt(rec.novelty_score)}
+              </Text>
+              <Text style={styles.scoreItem}>Fit {fmt(rec.fit_score)}</Text>
+            </View>
           </View>
-          <Text style={styles.openHint}>Tap to open the recipe</Text>
-        </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -413,10 +517,11 @@ export default function ChatbotScreen() {
       <FlatList
         ref={listRef}
         data={messages}
-        extraData={likeState}
+        extraData={[likeState, latestRecId]}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={renderSuggestedActions}
+        ListFooterComponent={waiting ? <TypingIndicator /> : null}
         renderItem={({ item }) => {
           const recs = item.recommendations ?? [];
 
@@ -427,6 +532,7 @@ export default function ChatbotScreen() {
                 item.sender === "user"
                   ? styles.userBubble
                   : styles.assistantBubble,
+                recs.length > 0 && styles.bubbleWide,
               ]}
             >
               {!!item.text && (
@@ -450,40 +556,42 @@ export default function ChatbotScreen() {
                 </View>
               )}
 
-              {recs.length > 0 && likeState[item.id] === "asking" && (
-                <View style={styles.likePrompt}>
-                  <Text style={styles.likePromptText}>
-                    Do you like this suggestion?
-                  </Text>
-                  <View style={styles.likePromptRow}>
-                    <TouchableOpacity
-                      style={styles.likeYesBtn}
-                      onPress={() => onAnswerLike(item.id, true)}
-                    >
-                      <Ionicons
-                        name="thumbs-up-outline"
-                        size={14}
-                        color="#FFFFFF"
-                      />
-                      <Text style={styles.likeYesText}>Yes</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.likeNoBtn}
-                      onPress={() => onAnswerLike(item.id, false)}
-                    >
-                      <Text style={styles.likeNoText}>Not really</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() =>
-                        setLikeState((st) => ({ ...st, [item.id]: "no" }))
-                      }
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="close" size={18} color="#8E8E93" />
-                    </TouchableOpacity>
+              {recs.length > 0 &&
+                likeState[item.id] === "asking" &&
+                item.id === latestRecId && (
+                  <View style={styles.likePrompt}>
+                    <Text style={styles.likePromptText}>
+                      Do you like this suggestion?
+                    </Text>
+                    <View style={styles.likePromptRow}>
+                      <TouchableOpacity
+                        style={styles.likeYesBtn}
+                        onPress={() => onAnswerLike(item.id, true)}
+                      >
+                        <Ionicons
+                          name="thumbs-up-outline"
+                          size={14}
+                          color="#FFFFFF"
+                        />
+                        <Text style={styles.likeYesText}>Yes</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.likeNoBtn}
+                        onPress={() => onAnswerLike(item.id, false)}
+                      >
+                        <Text style={styles.likeNoText}>Not really</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() =>
+                          setLikeState((st) => ({ ...st, [item.id]: "no" }))
+                        }
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close" size={18} color="#8E8E93" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              )}
+                )}
               {(likeState[item.id] === "yes" || likeState[item.id] === "no") &&
                 recs.length > 0 && (
                   <Text style={styles.likeThanks}>
@@ -497,7 +605,9 @@ export default function ChatbotScreen() {
         }}
       />
 
-      {loading && <ActivityIndicator style={styles.loader} color="#FF7A00" />}
+      {loading && !waiting && (
+        <ActivityIndicator style={styles.loader} color="#FF7A00" />
+      )}
 
       {cooking && (
         <View
@@ -551,6 +661,8 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "85%", padding: 12, borderRadius: 16 },
   userBubble: { alignSelf: "flex-end", backgroundColor: "#FF7A00" },
   assistantBubble: { alignSelf: "flex-start", backgroundColor: "#E5E5EA" },
+  // a bubble with meal cards has a fixed width, so opening the "why" panel wraps text instead of growing the card
+  bubbleWide: { width: "85%" },
   bubbleText: { fontSize: 15 },
   userText: { color: "#FFFFFF" },
   assistantText: { color: "#000000" },
@@ -558,10 +670,22 @@ const styles = StyleSheet.create({
   cardContainer: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    padding: 12,
     borderWidth: 1,
     borderColor: "#E0E0E0",
+    overflow: "hidden",
   },
+  cardBody: { padding: 12 },
+  chevronBtn: { paddingHorizontal: 4 },
+  // slightly gray panel tucked under the card
+  flap: {
+    backgroundColor: "#F0F0F2",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#E4E4E7",
+  },
+  scoreRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  scoreItem: { fontSize: 12, color: "#6C6C70", fontWeight: "500" },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

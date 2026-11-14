@@ -97,6 +97,8 @@ async def calculate_meal_recommendations(
                 health_score=r["health_score"],
                 liking_score=r["liking_score"],
                 final_score=r["final_score"],
+                novelty_score=round(r.get("novelty_score") if r.get("novelty_score") is not None else 1.0, 3),
+                fit_score=round(r.get("meal_fit") if r.get("meal_fit") is not None else 1.0, 3),
                 calories=round(r["calories"]),
                 protein=round(r["protein"], 1),
                 carb=round(r["carb"], 1),
@@ -114,6 +116,7 @@ async def calculate_meal_recommendations(
     for x in results:
         print(
             f"[dss]   #{x.recipe_id} {x.recipe_name!r}: health={x.health_score} "
-            f"liking={x.liking_score} final={x.final_score} kcal={x.calories} protein={x.protein}"
+            f"liking={x.liking_score} novelty={x.novelty_score} fit={x.fit_score} "
+            f"final={x.final_score} kcal={x.calories} protein={x.protein}"
         )
     return results

@@ -15,17 +15,10 @@ import {
   CUISINE_GROUP_ID,
   sanitizeNumber,
 } from "@/components/forms/ingredientCommon";
-import UnitEditorModal from "./UnitEditorModal";
 import UnitDropdown from "./UnitDropdown";
 import {
   DbUnit,
-  MAX_UNITS_PER_INGREDIENT,
-  addIngredientUnit,
-  deleteIngredientUnit,
-  updateIngredientUnit,
-  IngredientOwner,
   fetchDensity,
-  fetchIngredientOwners,
   fetchUnits,
   gramsFor,
   isGramUnit,
@@ -91,7 +84,7 @@ export default function RecipeForm({
   onSubmit,
 }: Props) {
   const router = useRouter();
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [caption, setCaption] = useState(initial?.caption ?? "");
@@ -122,41 +115,7 @@ export default function RecipeForm({
   );
   const densityRef = useRef<Record<string, number>>({});
   const [, setDensityTick] = useState(0); // re-render once densities (for "≈ g" labels) are known
-  // unit pop-up: adding a unit to an ingredient, or editing one the user created (admins: any)
-  const [unitEditor, setUnitEditor] = useState<{
-    ing: PickedIngredient;
-    unit?: DbUnit;
-  } | null>(null);
-
-  const [owners, setOwners] = useState<Record<string, IngredientOwner>>({});
-  const ownCount = (ing: PickedIngredient) =>
-    unitsOf(ing).filter((u) => u.ingredient_id !== null).length;
-  // units are part of the ingredient: only its owner (while unverified) and admins can change them
-  const canEditUnits = (ing: PickedIngredient) => {
-    if (isAdmin) return true;
-    const o = owners[String(ing.id)];
-    return !!o && !!user?.id && o.user_id === user.id && o.status === "unverified";
-  };
-  const canManage = (ing: PickedIngredient, u: DbUnit | undefined) =>
-    !!u && u.ingredient_id !== null && canEditUnits(ing);
-
-  // reload the units of one ingredient after one was added / edited / removed
-  const reloadUnits = async (ing: PickedIngredient, selectId?: number) => {
-    const map = await fetchUnits([Number(ing.id)]);
-    setUnitMap((prev) => ({ ...prev, ...map }));
-    setUnitIds((prev) => {
-      const next = { ...prev };
-      if (selectId !== undefined) next[ing.key] = selectId;
-      else if (
-        next[ing.key] !== undefined &&
-        next[ing.key] !== -1 &&
-        !(map[String(ing.id)] ?? []).some((u) => u.unit_id === next[ing.key])
-      )
-        delete next[ing.key]; // the selected unit was removed -> back to the default
-      return next;
-    });
-  };
-
+  // Units are managed only in the Edit Ingredient form; here they can only be picked.
   const unitsOf = (ing: PickedIngredient): DbUnit[] =>
     unitMap[String(ing.id)] ?? [];
   const unitOf = (ing: PickedIngredient): DbUnit | undefined => {
@@ -196,9 +155,6 @@ export default function RecipeForm({
       .filter((id) => unitMap[String(id)] === undefined);
     if (need.length === 0) return;
     let cancelled = false;
-    fetchIngredientOwners(need)
-      .then((o) => !cancelled && setOwners((prev) => ({ ...prev, ...o })))
-      .catch(() => {});
     fetchUnits(need)
       .then((map) => {
         if (cancelled) return;
@@ -662,30 +618,6 @@ export default function RecipeForm({
                     disabled={loading}
                     onSelect={(u) => changeUnit(ing, u)}
                   />
-                  {canManage(ing, unit) && (
-                    <TouchableOpacity
-                      style={styles.unitChipAction}
-                      onPress={() => setUnitEditor({ ing, unit })}
-                      disabled={loading}
-                    >
-                      <Ionicons name="pencil" size={13} color="#C96A0A" />
-                    </TouchableOpacity>
-                  )}
-                  {unitMap[String(ing.id)] !== undefined &&
-                    // only the ingredient's owner / admins; owners get ONE special unit (the default)
-                    canEditUnits(ing) &&
-                    (isAdmin
-                      ? ownCount(ing) < MAX_UNITS_PER_INGREDIENT
-                      : ownCount(ing) === 0) && (
-                      <TouchableOpacity
-                        style={styles.unitChipAction}
-                        onPress={() => setUnitEditor({ ing })}
-                        disabled={loading}
-                      >
-                        <Ionicons name="add" size={14} color="#C96A0A" />
-                        <Text style={styles.unitText}> unit</Text>
-                      </TouchableOpacity>
-                    )}
                 </ScrollView>
               </View>
 
@@ -810,42 +742,6 @@ export default function RecipeForm({
         onClose={() => setIsPickerVisible(false)}
         picked={ingredients}
         onToggle={toggleIngredient}
-      />
-
-      <UnitEditorModal
-        visible={unitEditor !== null}
-        mode="ingredient"
-        subject={unitEditor?.ing.name}
-        initial={
-          unitEditor?.unit
-            ? {
-                nameEn: unitEditor.unit.name_en,
-                nameTh: unitEditor.unit.name_th ?? "",
-                value: unitEditor.unit.factor,
-              }
-            : undefined
-        }
-        onClose={() => setUnitEditor(null)}
-        onSave={async (v) => {
-          if (!unitEditor) return;
-          const { ing, unit: editing } = unitEditor;
-          if (editing) {
-            await updateIngredientUnit(editing.unit_id, v.nameEn, v.nameTh, v.value);
-            await reloadUnits(ing, editing.unit_id);
-          } else {
-            const newId = await addIngredientUnit(Number(ing.id), v.nameEn, v.nameTh, v.value);
-            await reloadUnits(ing, newId); // use it right away
-          }
-        }}
-        onDelete={
-          unitEditor?.unit
-            ? async () => {
-                const { ing, unit: editing } = unitEditor;
-                await deleteIngredientUnit(editing!.unit_id);
-                await reloadUnits(ing);
-              }
-            : undefined
-        }
       />
     </>
   );

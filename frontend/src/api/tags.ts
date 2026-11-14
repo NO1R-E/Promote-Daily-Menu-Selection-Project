@@ -29,8 +29,8 @@ export type TagGroup = {
 
 export type TagData = { tags: Tag[]; groups: TagGroup[]; fetchedAt: number };
 
-const STORAGE_KEY = "tag-cache-v1"; // change the name when the shape of TagData changes
-const MAX_AGE_MS = 24 * 60 * 60 * 1000; // refresh once a day
+const STORAGE_KEY = "tag-cache-v2";
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 let memory: TagData | null = null;
 let inflight: Promise<TagData> | null = null; // several screens asking at once share one request
@@ -64,7 +64,7 @@ async function fetchFromServer(): Promise<TagData> {
 
   return {
     tags: (tagRes.data ?? [])
-      .filter((t: any) => t.group_id != null) // a tag without a group can't be shown anywhere
+      .filter((t: any) => t.group_id != null)
       .map((t: any) => ({
       tag_id: Number(t.tag_id),
       tag_name: String(t.tag_name ?? ""),
@@ -85,7 +85,6 @@ async function fetchFromServer(): Promise<TagData> {
   };
 }
 
-// force = true: ignore the saved copy and ask the server (e.g. a "retry" button)
 export function loadTags(force = false): Promise<TagData> {
   if (!force && memory && isFresh(memory)) return Promise.resolve(memory);
   if (inflight) return inflight;
@@ -112,7 +111,6 @@ export function loadTags(force = false): Promise<TagData> {
   return inflight;
 }
 
-// ---- small look-ups on the loaded data ----
 export const groupByCode = (d: TagData, code: string) => d.groups.find((g) => g.group_code === code) ?? null;
 
 export const tagsOfGroup = (d: TagData, code: string): Tag[] => {
@@ -122,7 +120,6 @@ export const tagsOfGroup = (d: TagData, code: string): Tag[] => {
 
 export const tagById = (d: TagData, tagId: number) => d.tags.find((t) => t.tag_id === Number(tagId)) ?? null;
 
-// ---- for screens ----
 export function useTags() {
   const [data, setData] = useState<TagData | null>(memory);
   const [loading, setLoading] = useState(!memory);

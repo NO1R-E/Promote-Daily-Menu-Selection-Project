@@ -40,6 +40,8 @@ Rules for preferences:
 - "preferences" may ONLY contain values from this list: {_ALLOWED}.
 - Map the user's wording to the closest value, e.g. "less salty" -> "low_sodium",
   "not too sweet" -> "low_sugar", "more protein" -> "high_protein".
+- Every nutrient has both directions (low_X and high_X), e.g. "saltier" or "I don't mind salt" -> "high_sodium",
+  "less protein" -> "low_protein". Use the direction the user actually asked for; never return both low_X and high_X of the same nutrient.
 - Never invent new values. If nothing in the list applies, return [].
 - Consider both past context and the new message.
 - If intent is "usual_chat" or "unclear", return [].
@@ -92,6 +94,8 @@ def _focus_prompt(options: Optional[List[dict]]) -> str:
         '- Set it ONLY when the user explicitly asks for one of the tags below, e.g. "a Thai recipe",\n'
         '  "a meat meal", "something spicy". Use ONLY an id from the list.\n'
         '- If the user names several, pick the one they stress most. Never guess from vague wording.\n'
+        '- Decide it from the NEW message only. Never carry a tag over from earlier messages: if the new message\n'
+        '  does not name a tag itself ("then what should I eat", "anything", "whatever you recommend"), use null.\n'
         '- For "usual_chat", or when nothing applies, use null.\n'
         f"Allowed focus tags:\n{lines}\n"
     )

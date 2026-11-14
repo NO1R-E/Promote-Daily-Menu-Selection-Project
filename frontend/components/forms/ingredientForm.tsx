@@ -86,7 +86,8 @@ type UnitRow = {
   grams: string;
   is_default: boolean;
 };
-const MAX_UNITS_ADMIN = 8; // admins: up to 8; a normal user adds one special unit (its default)
+const MAX_UNITS_ADMIN = 8; // admins: up to 8
+const MAX_UNITS_USER = 5; // owners: up to 5, only while the ingredient is unverified and not used by a visible recipe
 
 type Nutrient = {
   nutrient_id: number;
@@ -126,7 +127,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   UNIT_IN_USE:
     "A recipe already uses a unit you removed. Keep that unit (you can change its weight).",
   TOO_MANY_UNITS:
-    "An ingredient can have only one special unit (admins: up to 8).",
+    "An ingredient can have up to 5 special units (admins: up to 8).",
   NOT_AUTHENTICATED: "Please log in again.",
   CALORIES_REQUIRED: "Please enter Calories.",
   FORBIDDEN: "Only admins can edit system ingredients.",
@@ -153,7 +154,7 @@ export default function IngredientForm({
   verifyOnSave = false,
 }: IngredientFormProps) {
   const isAdmin = mode === "admin";
-  const MAX_UNITS = isAdmin ? MAX_UNITS_ADMIN : 1;
+  const MAX_UNITS = isAdmin ? MAX_UNITS_ADMIN : MAX_UNITS_USER;
   const isEdit = editIngredientId != null; // admins edit any ingredient; owners only their own unverified, unused one (checked by the database)
   const { user } = useAuth();
   const { isServerHealthy } = useHealth();
@@ -496,7 +497,7 @@ export default function IngredientForm({
       : "Add as a verified ingredient?";
     const body =
       "Diet and allergen labels are the two things people depend on for health and religious reasons. Please check them again before you continue.\n\n" +
-      `Allergens: ${allergens.length ? allergens.join(", ") : "none marked"}\n` +
+      `Allergen & Restriction: ${allergens.length ? allergens.join(", ") : "none marked"}\n` +
       `Diet: ${diets.length ? diets.join(", ") : "none (treated as not suitable for any diet)"}\n\n` +
       (isEdit && !verifyOnSave
         ? "New recipes will use these labels. Existing recipes keep their current labels until they are refreshed."
@@ -978,7 +979,7 @@ export default function IngredientForm({
 
       <Text style={[styles.label, { marginTop: 18 }]}>Units (optional)</Text>
       <Text style={styles.helper}>
-        {isAdmin ? "Special units for things people count instead of weigh. " : "One special unit for things people count instead of weigh. "}
+        {`Special units (up to ${MAX_UNITS}) for things people count instead of weigh. `}
         e.g. 1 egg = 50 g, so a recipe can say "2 egg" and we save 100 g. It is
         shown with the usual units (g, kg, tbsp...) when people use this ingredient.
       </Text>
@@ -1097,6 +1098,7 @@ export default function IngredientForm({
         onNoneChange={setNoneGroups}
         hideTagNamePrefix="Non-"
         groupNotes={dietOn ? { [DIET_GROUP_ID]: DIET_NOTE } : undefined}
+        groupNames={{ [ALLERGEN_GROUP_ID]: "Allergen & Restriction" }}
         onMissingChange={setMissingGroups}
         highlightMissing={showMissing}
       />

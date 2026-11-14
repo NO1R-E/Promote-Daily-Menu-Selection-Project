@@ -6,6 +6,8 @@ export interface MealRecommendation {
   health_score: number;
   liking_score: number;
   final_score: number;
+  novelty_score?: number; // missing on messages saved before this field existed
+  fit_score?: number;
   calories: number;
   meal_type: string;
   protein: number;
@@ -43,4 +45,5 @@ export interface MessageItem {
   text: string;
   recommendations?: MealRecommendation[];
   intent?: string | null;
+  tip?: boolean; // a cooking tip bubble (shown with a typing effect, not saved in the room history)
 }

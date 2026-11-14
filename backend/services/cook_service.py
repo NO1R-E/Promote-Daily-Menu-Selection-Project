@@ -5,6 +5,7 @@ the user was shown (0 = nothing yet). The server stays stateless: it answers and
 Navigation (next / back / repeat / ingredients / exit / go to step N) is done by code; the LLM is only used to
 label messages the rules can't read, and to answer questions about the recipe.
 """
+import asyncio
 import json
 import re
 from typing import List, Optional, Tuple
@@ -36,7 +37,7 @@ _NEXT = {"next", "next step", "continue", "go on", "ok", "okay", "done", "ready"
          "then", "what's next", "whats next", "what next", "go", "n", "yes", "yep", "yeah", "sure",
          "next please"}
 _START = {"start", "start cooking", "begin", "let's start", "lets start", "let's cook", "lets cook"}
-_BACK = {"back", "previous", "prev", "go back", "last step", "previous step", "b"}
+_BACK = {"back", "previous", "prev", "go back", "last step", "previous step", "back step", "b"}   # "back step" = the app's chip
 _REPEAT = {"repeat", "again", "say again", "say that again", "repeat that", "current step", "what step",
            "which step", "what was that", "once more", "r"}
 _INGREDIENTS = {"ingredients", "ingredient", "what do i need", "ingredient list", "list ingredients",
@@ -132,6 +133,70 @@ def intro_text(recipe: dict) -> str:
 def step_text(recipe: dict, step: int) -> str:
     total = len(recipe["steps"])
     return f"Step {step}/{total}\n{recipe['steps'][step - 1]}"
+
+
+_TIP_PROMPT = """You are a cooking coach inside a mobile app. You get ONE recipe and a maximum number of tips.
+Give a tip ONLY for a step where a mistake is easy to make and would really spoil the dish or be unsafe:
+critical heat or timing, something that burns, splits or turns bitter if done wrong, the order of adding things
+that matters, food safety. Ordinary steps (chop, mix, serve, stir, wait) get NO tip.
+Most recipes need only 0-2 tips. Never fill the maximum just because it is allowed; fewer is better.
+
+Rules:
+- Only give a tip when it is important, specific and useful for that step. Do not repeat or rephrase the step.
+- Base it on this recipe. Do not invent ingredients or amounts that are not listed.
+- One sentence, at most 25 words, plain text, no markdown, no \"Tip:\" prefix.
+- If nothing useful applies to a step, leave it out. When in doubt, leave it out.
+Return ONLY JSON keyed by step number, with the steps that have a tip, e.g. {\"2\": \"...\", \"5\": \"...\"}.
+Return {} if no step needs a tip."""
+
+_tip_cache: dict = {}          # recipe_id -> {step: tip}; ONE LLM call covers every step of a recipe
+_TIP_CACHE_MAX = 200
+_tip_locks: dict = {}          # recipe_id -> lock, so two quick requests for the same recipe make one call
+
+
+async def _tips_for_recipe(recipe_id: int, recipe: dict) -> Optional[dict]:
+    if recipe_id in _tip_cache:
+        return _tip_cache[recipe_id]
+    lock = _tip_locks.setdefault(recipe_id, asyncio.Lock())
+    async with lock:
+        if recipe_id in _tip_cache:
+            return _tip_cache[recipe_id]
+        steps_block = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(recipe["steps"]))
+        total = len(recipe["steps"])
+        max_tips = max(1, min(3, total // 4))          # a short recipe gets at most 1, a long one at most 3
+        user_block = (
+            f"Recipe: {recipe['name']}\n"
+            f"Ingredients:\n{format_ingredients(recipe)}\n"
+            f"Steps:\n{steps_block}\n\n"
+            f"Maximum number of tips: {max_tips}"
+        )
+        try:
+            raw = await execute_groq_request(
+                messages=[{"role": "system", "content": _TIP_PROMPT}, {"role": "user", "content": user_block}],
+                model=GROQ_LARGE_MODEL,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(raw)
+        except Exception as e:     # a failed tip is simply no tip; cooking must never break because of it
+            print(f"[cook] tips failed: {e}")
+            return None            # not cached, so a later try can succeed
+        tips = {}
+        for k, v in (data.items() if isinstance(data, dict) else []):
+            if str(k).isdigit() and 1 <= int(k) <= total and isinstance(v, str):
+                text = re.sub(r"^\s*tips?\s*:\s*", "", v, flags=re.I).strip()
+                if text:
+                    tips[int(k)] = text
+        tips = dict(sorted(tips.items())[:max_tips])     # hard cap, in case the model ignores the limit
+        if len(_tip_cache) >= _TIP_CACHE_MAX:
+            _tip_cache.clear()
+        _tip_cache[recipe_id] = tips
+        return tips
+
+
+async def tips_for_recipe(recipe_id: int, recipe: dict) -> dict:
+    """{step: tip} for the steps that have a tip; {} when none (or anything fails). The app asks once when
+    cooking starts and keeps the answer, so the rest of the session needs no LLM call."""
+    return await _tips_for_recipe(recipe_id, recipe) or {}
 
 
 async def answer_question(message: str, recipe: dict, step: int,

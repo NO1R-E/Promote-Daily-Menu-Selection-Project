@@ -18,6 +18,12 @@ class UserMessageRequest(BaseModel):
     room_id: Optional[str] = None
     cooking: Optional[CookingState] = None      # present while the user is in cooking mode
 
+class CookTipsRequest(BaseModel):
+    recipe_id: int
+
+class CookTipsResponse(BaseModel):
+    tips: Dict[str, str] = {}                   # step number -> tip; steps without a tip are left out
+
 class ClassificationResult(BaseModel):
     intent: IntentEnum
     meal_type: Optional[str] = None
@@ -33,6 +39,8 @@ class MealRecommendation(BaseModel):
     health_score: float
     liking_score: float
     final_score: float
+    novelty_score: float = 1.0        # 1 = not seen recently, lower = repeated lately
+    fit_score: float = 1.0            # how well the meal matches the slot's calorie / protein target
     meal_type: Optional[str] = None
     preferences: List[str] = []
     calories: float

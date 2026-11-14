@@ -68,10 +68,9 @@ export default function AdminReportsScreen() {
     setLoading(false);
   };
 
-  // refetch every time the screen regains focus, so a post removed in the forum drops off the queue
   useFocusEffect(
     useCallback(() => {
-    fetchFlaggedReports();
+      fetchFlaggedReports();
     }, []),
   );
 
@@ -174,7 +173,7 @@ export default function AdminReportsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.subHeader}>
-        Forums with &gt; 10 unique user reports requiring review
+        Forums with &gt; 4 unique user reports requiring review
       </Text>
 
       {loading && flaggedPosts.length === 0 ? (
@@ -257,9 +256,18 @@ export default function AdminReportsScreen() {
 
               <Text style={styles.postSectionTitle}>Post Title:</Text>
               <View style={styles.copyRow}>
-                <Text style={[styles.postTitle, { flex: 1, marginBottom: 0 }]}>{selectedPost.title}</Text>
-                <TouchableOpacity hitSlop={10} onPress={() => copyText("title", selectedPost.title)}>
-                  <Ionicons name={copiedKey === "title" ? "checkmark" : "copy-outline"} size={20} color={copiedKey === "title" ? "#34C759" : "#666"} />
+                <Text style={[styles.postTitle, { flex: 1, marginBottom: 0 }]}>
+                  {selectedPost.title}
+                </Text>
+                <TouchableOpacity
+                  hitSlop={10}
+                  onPress={() => copyText("title", selectedPost.title)}
+                >
+                  <Ionicons
+                    name={copiedKey === "title" ? "checkmark" : "copy-outline"}
+                    size={20}
+                    color={copiedKey === "title" ? "#34C759" : "#666"}
+                  />
                 </TouchableOpacity>
               </View>
 
@@ -267,9 +275,27 @@ export default function AdminReportsScreen() {
                 <>
                   <Text style={styles.postSectionTitle}>Recipe Name:</Text>
                   <View style={styles.copyRow}>
-                    <Text style={[styles.postContent, { flex: 1, marginBottom: 0 }]}>{selectedPost.recipes.recipe_name}</Text>
-                    <TouchableOpacity hitSlop={10} onPress={() => copyText("recipe", selectedPost.recipes?.recipe_name ?? "")}>
-                      <Ionicons name={copiedKey === "recipe" ? "checkmark" : "copy-outline"} size={20} color={copiedKey === "recipe" ? "#34C759" : "#666"} />
+                    <Text
+                      style={[styles.postContent, { flex: 1, marginBottom: 0 }]}
+                    >
+                      {selectedPost.recipes.recipe_name}
+                    </Text>
+                    <TouchableOpacity
+                      hitSlop={10}
+                      onPress={() =>
+                        copyText(
+                          "recipe",
+                          selectedPost.recipes?.recipe_name ?? "",
+                        )
+                      }
+                    >
+                      <Ionicons
+                        name={
+                          copiedKey === "recipe" ? "checkmark" : "copy-outline"
+                        }
+                        size={20}
+                        color={copiedKey === "recipe" ? "#34C759" : "#666"}
+                      />
                     </TouchableOpacity>
                   </View>
                 </>
@@ -293,7 +319,10 @@ export default function AdminReportsScreen() {
                 </>
               )}
 
-              <TouchableOpacity style={styles.openPostBtn} onPress={openPostInForum}>
+              <TouchableOpacity
+                style={styles.openPostBtn}
+                onPress={openPostInForum}
+              >
                 <Ionicons name="open-outline" size={18} color="#F28E2B" />
                 <Text style={styles.openPostText}>Open post in forum</Text>
               </TouchableOpacity>
@@ -365,7 +394,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8F9FA" },
   subHeader: {
     fontSize: 13,
-    color: "#666",
+    color: "#e10707",
     paddingHorizontal: 20,
     marginTop: 4,
     marginBottom: 10,
@@ -460,7 +489,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  copyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  copyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
   openPostBtn: {
     flexDirection: "row",
     alignItems: "center",

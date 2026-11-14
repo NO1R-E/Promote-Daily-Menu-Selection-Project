@@ -12,16 +12,14 @@ from services.supabase_service import fetch_recent_history, save_chat_turn, get_
 
 async def handle_cooking_flow(active_room_id: str, message: str, cooking: CookingState,
                               background_tasks: BackgroundTasks) -> ChatResponse:
-    """Cooking mode: every other chat feature is off, the message is about the recipe being cooked."""
     def reply(text: str, step: Optional[int] = None, ended: bool = False) -> ChatResponse:
-        # stored as usual_chat: the chat_intent enum has no cooking value
         return ChatResponse(room_id=active_room_id, intent=IntentEnum.USUAL_CHAT, message=text,
                             cooking=None if ended else CookingState(recipe_id=cooking.recipe_id, step=step or 0),
                             cooking_ended=ended)
 
     try:
         recipe = await fetch_cook_recipe(cooking.recipe_id)
-    except Exception as e:      # temporary database problem: stay in cooking mode at the same step
+    except Exception as e:      
         print(f"[cook] recipe lookup failed: {e}")
         response = reply("Sorry, I couldn't load the recipe just now. Please try again.", cooking.step)
         background_tasks.add_task(save_chat_turn, active_room_id, message, response)

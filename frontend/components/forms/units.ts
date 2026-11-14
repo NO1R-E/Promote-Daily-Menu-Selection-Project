@@ -110,8 +110,10 @@ export const UNIT_ERRORS: Record<string, string> = {
   UNIT_IN_USE: "A recipe already uses this unit, so it can't be removed.",
   UNIT_SYSTEM: "This unit is needed by the app. Only its Thai name can change.",
   TOO_MANY_UNITS:
-    "An ingredient can have only one special unit (admins: up to 8).",
+    "An ingredient can have up to 5 special units (admins: up to 8).",
   UNIT_NOT_FOUND: "This unit no longer exists.",
+  INGREDIENT_IN_USE:
+    "A recipe already uses this ingredient, so its units can no longer be changed.",
   FORBIDDEN:
     "Only the owner of this ingredient (or an admin) can change its units.",
   NOT_AUTHENTICATED: "Please log in again.",
@@ -124,7 +126,7 @@ export const unitErrorMessage = (e: any): string => {
   return code ? UNIT_ERRORS[code] : "Something went wrong. Please try again.";
 };
 
-// admins: up to 8 units per ingredient. A normal user gets one special unit per ingredient (its default).
+// admins: up to 8 units per ingredient. An owner gets up to 5 (see MAX_UNITS_USER in ingredientForm.tsx).
 export const MAX_UNITS_PER_INGREDIENT = 8;
 
 // owner + status of ingredients: units belong to the ingredient, so only its owner (while it is

@@ -223,6 +223,18 @@ function CustomDrawerContent(props: any) {
                 >
                   {item.title || `Chat #${item.room_id}`}
                 </Text>
+                {/* same menu as long press */}
+                <TouchableOpacity
+                  onPress={() => handleLongPress(item)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={styles.roomDots}
+                >
+                  <Ionicons
+                    name="ellipsis-vertical"
+                    size={16}
+                    color={isSelected ? "#FF7A00" : "#888"}
+                  />
+                </TouchableOpacity>
               </TouchableOpacity>
             );
           }}
@@ -414,12 +426,16 @@ const styles = StyleSheet.create({
   newChatText: { fontSize: 12, fontWeight: "600", color: "#FF7A00" },
   roomList: { paddingHorizontal: 10, gap: 1 },
   roomItem: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingLeft: 12,
+    paddingRight: 6,
     borderRadius: 6,
   },
+  roomDots: { paddingHorizontal: 6, paddingVertical: 2 },
   roomItemActive: { backgroundColor: "#FFF3E0" },
-  roomText: { fontSize: 13, color: "#444" },
+  roomText: { flex: 1, fontSize: 13, color: "#444" },
   roomTextActive: { fontWeight: "bold", color: "#FF7A00" },
   emptyText: {
     paddingHorizontal: 16,

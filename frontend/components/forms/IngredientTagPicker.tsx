@@ -52,6 +52,7 @@ type Props = {
   onNoneChange?: (groupIds: number[]) => void;
   hideTagNamePrefix?: string; // ซ่อนแท็กที่ชื่อขึ้นต้นด้วยข้อความนี้ (เฉพาะกลุ่มใน noneGroupIds) เช่น "Non-"
   groupNotes?: Record<number, string>; // ข้อความอธิบายใต้ชื่อกลุ่มเมื่อกางกลุ่ม
+  groupNames?: Record<number, string>; // show this name instead of tag_groups.group_name (only for this picker)
   tagHints?: TagHint[]; // คำอธิบายแท็ก (จับด้วยชื่อ) แสดงใต้ชิปเมื่อกางกลุ่ม
   onMissingChange?: (groupNames: string[]) => void; // รายชื่อกลุ่มที่ยังไม่ได้เลือก (ว่าง = ครบ)
   highlightMissing?: boolean; // ขอบแดงกลุ่มที่ยังไม่ได้เลือก (ใช้หลังกด Save แล้วไม่ผ่าน)
@@ -79,6 +80,7 @@ export default function IngredientTagPicker({
   onNoneChange,
   hideTagNamePrefix,
   groupNotes,
+  groupNames,
   tagHints,
   onMissingChange,
   highlightMissing = false,
@@ -135,7 +137,9 @@ export default function IngredientTagPicker({
         );
       }
 
-      setGroups(groupList);
+      setGroups(
+        groupList.map((g) => ({ ...g, group_name: groupNames?.[g.group_id] ?? g.group_name })),
+      );
       setTags(tagList);
       if (defaultExpanded) setExpanded(groupList.map((g) => g.group_id));
     } catch (error: any) {

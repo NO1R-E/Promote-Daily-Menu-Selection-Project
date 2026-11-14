@@ -117,7 +117,7 @@ export default function AllergiesForm({
 
       {!loading && !loadError && allergyOptions.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Allergies</Text>
+          <Text style={styles.sectionLabel}>Allergen & Restriction</Text>
           <View style={styles.grid}>{allergyOptions.map(renderChip)}</View>
         </View>
       )}

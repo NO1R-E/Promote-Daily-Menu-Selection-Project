@@ -269,13 +269,14 @@ export default function ProfileScreen() {
               Include unverified recipes
             </Text>
             <Text style={[styles.menuHint, { marginTop: 0 }]}>
-              Off = only admin-verified recipes are recommended
+              Off = only admin-verified & Own recipes are recommended
             </Text>
           </View>
           <Switch
             value={includeUnverified}
             onValueChange={toggleUnverified}
             trackColor={{ true: ORANGE, false: "#D1D1D6" }}
+            thumbColor={ORANGE}
           />
         </View>
 

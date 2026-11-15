@@ -2,7 +2,9 @@ import { BASE_URL } from "../config/backend";
 
 export type IngredientEstimate = {
   is_ingredient: boolean;
-  name: string;
+  name: string; // kept for older servers: name_en, else name_th
+  name_en: string; // "" when the model gave none
+  name_th: string;
   nutrients: Record<string, number>;
   tag_ids: number[];
   units: { name_en: string; name_th: string | null; grams: number }[];

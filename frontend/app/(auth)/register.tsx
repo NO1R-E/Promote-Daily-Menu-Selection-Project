@@ -24,6 +24,9 @@ import {
   USERNAME_MAX,
   normalizeEmail,
   normalizeUsername,
+  sanitizeEmailInput,
+  sanitizePasswordInput,
+  sanitizeUsernameInput,
   validateSignupEmail,
   validateNewPassword,
   validateUsername,
@@ -153,7 +156,7 @@ export default function RegisterScreen() {
               placeholder="Username"
               placeholderTextColor="#999"
               value={userName}
-              onChangeText={setUserName}
+              onChangeText={(t) => setUserName(sanitizeUsernameInput(t))}
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={USERNAME_MAX}
@@ -163,7 +166,7 @@ export default function RegisterScreen() {
               placeholder="Email"
               placeholderTextColor="#999"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => setEmail(sanitizeEmailInput(t))}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
@@ -174,14 +177,14 @@ export default function RegisterScreen() {
             <PasswordInput
               placeholder="Password"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(t) => setPassword(sanitizePasswordInput(t))}
               maxLength={PASSWORD_MAX}
               autoComplete="new-password"
             />
             <PasswordInput
               placeholder="Confirm password"
               value={confirmPassword}
-              onChangeText={setConfirmPassword}
+              onChangeText={(t) => setConfirmPassword(sanitizePasswordInput(t))}
               maxLength={PASSWORD_MAX}
               autoComplete="new-password"
             />

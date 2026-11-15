@@ -9,7 +9,6 @@ from config import GROQ_LARGE_MODEL
 MAX_DESCRIPTION = 300
 
 LIMITS = {
-    # keys must match nutrients.nutrient_name in the database
     "energy": 950,
     "protein": 100,
     "tot_fat": 100,
@@ -30,7 +29,8 @@ in their own words (Thai or English). Estimate its nutrition PER 100 g and choos
 Return ONLY a JSON object:
 {
   "is_ingredient": true | false,
-  "name": "short ingredient name, same language as the user",
+  "name_en": "short plain English name of the ingredient, e.g. chicken breast",
+  "name_th": "the common Thai name of the same ingredient, e.g. อกไก่ (empty string if you are not sure)",
   "nutrients": { "<nutrient_name>": <number per 100 g>, ... },
   "tag_ids": [<tag_id>, ...],
   "units": [{"name_en": "egg", "name_th": "ฟอง", "grams": 50}],
@@ -38,6 +38,9 @@ Return ONLY a JSON object:
 }
 
 Rules:
+- name_en and name_th name the SAME ingredient in two languages: translate if the user wrote only one.
+  Keep them short; no brand names, amounts or cooking notes. name_en must be English letters only and
+  name_th Thai letters only.
 - Use ONLY nutrient names from the allowed list, exactly as written. Units are given in the list.
 - Include only values you can reasonably estimate; omit the rest. Never invent precise-looking numbers.
 - Use ONLY tag_ids from the allowed tag list. Each tag is shown as `id: name [group] - meaning`;
@@ -85,12 +88,34 @@ def _drop_opposites(picked: List[int], names: Dict[int, str]) -> List[int]:
     ]
 
 
+_THAI = re.compile(r"[฀-๿]")
+
+
+def _clean_names(raw: dict) -> tuple:
+    # เช็คว่าชื่อไทย สลับกับชื่ออังกฤษหรือไม่ ถ้าเป็นภาษาไทยให้เก็บไว้ใน name_th และลบออกจาก name_en
+    def clean(v) -> str:
+        s = re.sub(r"\s+", " ", str(v or "")).strip()[:80]
+        return "" if s.lower() in ("null", "none") else s
+
+    en, th = clean(raw.get("name_en") or raw.get("name")), clean(raw.get("name_th"))
+    if _THAI.search(en):
+        if not th:
+            th = en
+        en = ""
+    if th and not _THAI.search(th):
+        th = ""
+    if en and _THAI.search(en):
+        en = ""
+    return en, th
+
+
 def validate_result(
     raw: dict, nutrient_names: List[str], tag_ids: List[int], tag_names: Optional[Dict[int, str]] = None
 ) -> dict:
     """Keep only well-formed, in-range values. Pure function (easy to test)."""
     if not isinstance(raw, dict) or raw.get("is_ingredient") is False:
-        return {"is_ingredient": False, "name": "", "nutrients": {}, "tag_ids": [], "units": [], "note": ""}
+        return {"is_ingredient": False, "name": "", "name_en": "", "name_th": "",
+                "nutrients": {}, "tag_ids": [], "units": [], "note": ""}
 
     allowed_n = set(nutrient_names)
     nutrients: Dict[str, float] = {}
@@ -141,9 +166,12 @@ def validate_result(
             picked.append(t)
     picked = _drop_opposites(picked, tag_names or {})
 
+    name_en, name_th = _clean_names(raw)
     return {
         "is_ingredient": True,
-        "name": str(raw.get("name") or "").strip()[:80],
+        "name": name_en or name_th,
+        "name_en": name_en,
+        "name_th": name_th,
         "nutrients": nutrients,
         "tag_ids": picked,
         "units": units,

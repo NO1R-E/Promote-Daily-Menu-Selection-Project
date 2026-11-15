@@ -397,7 +397,6 @@ export default function ForumIndex() {
                 router.push(`/(app)/post/${item.recipe_forum_id}` as any)
               }
             >
-              {/* header: avatar, display name, @username · age, status icon top right */}
               <View style={styles.cardHeader}>
                 <Image
                   source={{
@@ -426,7 +425,6 @@ export default function ForumIndex() {
               )}
 
               <View style={styles.titleRow}>
-                {/* one line: a long title is cut with "..." and the icon (flexShrink 0) always stays visible */}
                 <Text
                   style={[styles.cardTitle, { flexShrink: 1, marginBottom: 0 }]}
                   numberOfLines={1}
@@ -456,7 +454,6 @@ export default function ForumIndex() {
 
               <View style={styles.divider} />
 
-              {/* bottom: like + save on the left, menu / report on the right */}
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   style={styles.likeBtn}

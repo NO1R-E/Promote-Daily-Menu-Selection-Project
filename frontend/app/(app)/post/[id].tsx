@@ -140,10 +140,8 @@ export default function PostScreen() {
 
   // cooking mode: the chatbot guides the user through this recipe's steps
   const startCooking = (recipeId: number, name: string) => {
-    setCurrentRoom(null); // every cooking session gets its own chat room
+    setCurrentRoom(null);
     setCooking({ recipe_id: recipeId, name, step: 0, pendingStart: true });
-    // navigate (not push): reuse the chat screen that already exists. A push stacks a second, empty copy that
-    // has to reload the whole room history before it can send the opening message.
     router.navigate("/(app)/(tabs)/chatbot" as any);
   };
 

@@ -87,7 +87,6 @@ When in doubt use "question"."""
 
 
 async def classify_cook_message(message: str, step: int, total: int) -> Tuple[str, Optional[int]]:
-    # the app opens with "Cook <recipe name>"; only before step 1, so "cook it longer?" later stays a question
     if step == 0 and _norm(message).startswith("cook "):
         return ("start", None)
     ruled = classify_by_rules(message, step)
@@ -111,7 +110,7 @@ async def classify_cook_message(message: str, step: int, total: int) -> Tuple[st
         if action == "goto" and n is None:
             return ("question", None)
         return (action, n)
-    except Exception as e:     # a failed label must never break cooking: treat as a question
+    except Exception as e:
         print(f"[cook] classify failed: {e}")
         return ("question", None)
 
@@ -133,6 +132,36 @@ def intro_text(recipe: dict) -> str:
 def step_text(recipe: dict, step: int) -> str:
     total = len(recipe["steps"])
     return f"Step {step}/{total}\n{recipe['steps'][step - 1]}"
+
+
+def navigate(action: str, n: Optional[int], recipe: dict, step: int) -> Optional[Tuple[str, int, bool]]:
+    total = len(recipe["steps"])
+    name = recipe["name"]
+    if action == "exit":
+        return ("Cooking mode is off. Ask me for a meal idea or a plan any time.", 0, True)
+    if action == "help":
+        return (COOK_HELP, step, False)
+    if action == "ingredients":
+        return (f"Ingredients for {name}:\n{format_ingredients(recipe)}", step, False)
+    if action == "start":                       # opening message: ingredients first, step 1 on "next"
+        return (intro_text(recipe), 0, False) if step == 0 else (step_text(recipe, 1), 1, False)
+    if action == "next":
+        if step >= total:
+            return (f"That was the last step. Enjoy your {name}! Cooking mode is off.", 0, True)
+        return (step_text(recipe, step + 1), step + 1, False)
+    if action == "back":
+        if step == 0:
+            return (intro_text(recipe), 0, False)
+        if step == 1:
+            return ("This is the first step.\n" + step_text(recipe, 1), 1, False)
+        return (step_text(recipe, step - 1), step - 1, False)
+    if action == "repeat":
+        return (intro_text(recipe), 0, False) if step == 0 else (step_text(recipe, step), step, False)
+    if action == "goto":
+        if n is not None and 1 <= n <= total:
+            return (step_text(recipe, n), n, False)
+        return (f"This recipe has steps 1 to {total}. Which one do you want?", step, False)
+    return None
 
 
 _TIP_PROMPT = """You are a cooking coach inside a mobile app. You get ONE recipe and a maximum number of tips.

@@ -28,8 +28,6 @@ async def chat_endpoint(
 
 @router.post("/cook/tips", response_model=CookTipsResponse)
 async def cook_tips_endpoint(request: CookTipsRequest):
-    """All tips of one recipe, from a single LLM call. The app asks once when cooking starts and keeps them.
-    Any failure just means 'no tips'."""
     try:
         recipe = await fetch_cook_recipe(request.recipe_id)
         if not recipe or not recipe["steps"]:

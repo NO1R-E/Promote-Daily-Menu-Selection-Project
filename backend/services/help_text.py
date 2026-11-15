@@ -38,27 +38,26 @@ def is_help_request(text: str) -> bool:
 
 
 def looks_like_nonsense(text: str) -> bool:
-    """Cheap rules for the obvious cases only. Anything subtler is left to the classifier's "unclear" intent.
-    Deliberately no dictionary: romanized Thai dish names (pad kra pao, som tam) are real input."""
+    # ตรวจข้อความว่าดูเป็นข้อความที่ไม่สมเหตุสมผลหรือไม่ โดยไม่ต้องใช้โมเดล LLM
     m = text.strip()
-    if not _LETTER.search(m):                         # empty, digits, symbols or emoji only
+    if not _LETTER.search(m):                       
         return True
     squeezed = re.sub(r"\s+", "", m)
-    if re.fullmatch(r"(.)\1{3,}", squeezed):          # "aaaaa", "ฮ่าๆๆๆๆ" style repeats
+    if re.fullmatch(r"(.)\1{3,}", squeezed): 
         return True
-    if m.isascii() and " " not in m and len(m) <= 24:  # a single latin "word" that is keyboard mashing
+    if m.isascii() and " " not in m and len(m) <= 24:
         w = m.lower()
-        if len(w) >= 5 and not re.search(r"[aeiouy]", w):   # "sdfgh"
+        if len(w) >= 5 and not re.search(r"[aeiouy]", w):
             return True
-        if any(w[i:i + 4] in _KEY_RUNS for i in range(len(w) - 3)):   # four neighbouring keys: "asdfgh", "zxcv"
+        if any(w[i:i + 4] in _KEY_RUNS for i in range(len(w) - 3)):
             return True
-        if re.search(r"[b-df-hj-np-tv-xz]{6,}", w):          # "qwrtypsd": six consonants in a row
+        if re.search(r"[b-df-hj-np-tv-xz]{6,}", w):
             return True
     return False
 
 
 def canned_reply(text: str) -> Optional[str]:
-    """The reply for "!help" or obvious nonsense, else None (go on to the classifier)."""
+    # เช็คว่าข้อความเป็นคำขอความช่วยเหลือหรือไม่ เร็วๆโดยไม่ต้องใช้โมเดล LLM
     if is_help_request(text):
         return help_reply(text)
     if looks_like_nonsense(text):

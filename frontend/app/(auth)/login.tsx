@@ -23,6 +23,8 @@ import {
   EMAIL_MAX,
   LOGIN_PASSWORD_MAX,
   normalizeEmail,
+  sanitizeEmailInput,
+  sanitizePasswordInput,
   validateEmail,
 } from "@/src/utils/authValidation";
 
@@ -75,7 +77,7 @@ export default function LoginScreen() {
           placeholder="Email"
           placeholderTextColor="#999"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(t) => setEmail(sanitizeEmailInput(t))}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
@@ -86,7 +88,7 @@ export default function LoginScreen() {
         <PasswordInput
           placeholder="Password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(t) => setPassword(sanitizePasswordInput(t))}
           maxLength={LOGIN_PASSWORD_MAX}
           autoComplete="password"
         />

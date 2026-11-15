@@ -1,10 +1,3 @@
-// Tags and tag groups change rarely, so the app loads them ONCE and reuses them everywhere.
-//
-//   loadTags()        -> every tag + every tag group (from memory, else from the phone, else from the server)
-//   useTags()         -> the same thing for a screen: { data, loading, error, reload }
-//
-// The copy is refreshed when it is older than MAX_AGE_MS. If the server can't be reached,
-// the old copy is used instead of failing.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/src/config/supabase";
@@ -20,10 +13,10 @@ export type Tag = {
 
 export type TagGroup = {
   group_id: number;
-  group_code: string; // food_group, flavor, texture, allergen, diet, cuisine, ...
+  group_code: string;
   group_name: string;
-  kind: string | null; // preference / filter / descriptive
-  scope: string | null; // ingredient / recipe / both
+  kind: string | null;
+  scope: string | null;
   sort_order: number;
 };
 
@@ -33,7 +26,7 @@ const STORAGE_KEY = "tag-cache-v2";
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 let memory: TagData | null = null;
-let inflight: Promise<TagData> | null = null; // several screens asking at once share one request
+let inflight: Promise<TagData> | null = null;
 
 const isFresh = (d: TagData) => Date.now() - d.fetchedAt < MAX_AGE_MS;
 
@@ -91,7 +84,6 @@ export function loadTags(force = false): Promise<TagData> {
 
   inflight = (async () => {
     try {
-      // first use after the app starts: the copy saved on the phone
       if (!memory) memory = await readStored();
       if (!force && memory && isFresh(memory)) return memory;
 
@@ -101,7 +93,7 @@ export function loadTags(force = false): Promise<TagData> {
         AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data)).catch(() => {});
         return data;
       } catch (err) {
-        if (memory) return memory; // offline: an old copy is better than nothing
+        if (memory) return memory;
         throw err;
       }
     } finally {

@@ -13,6 +13,10 @@ const PASSWORD_RE =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$&*_+\-=?])[A-Za-z0-9!@#$&*_+\-=?]{8,24}$/;
 const GMAIL_RE = /^[^\s@]+@gmail\.com$/;
 
+export const sanitizeEmailInput = (v: string) => v.replace(/[^A-Za-z0-9._%+@-]/g, "");
+export const sanitizeUsernameInput = (v: string) => v.replace(/[^A-Za-z0-9_]/g, "");
+export const sanitizePasswordInput = (v: string) => v.replace(/[^A-Za-z0-9!@#$&*_+\-=?]/g, "");
+
 export const normalizeEmail = (v: string) => v.trim().toLowerCase();
 export const normalizeUsername = (v: string) => v.trim();
 

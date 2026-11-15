@@ -2,8 +2,6 @@ import { BASE_URL } from "../config/backend";
 
 const TIPS_TIMEOUT_MS = 20_000;
 
-// All tips of one recipe ({ step: text }, only the steps that have one), from a single LLM call on the server.
-// Asked once when cooking starts. Resolves to {} on any error: missing tips must never get in the way of cooking.
 export async function getCookTips(
   recipeId: number,
 ): Promise<Record<number, string>> {

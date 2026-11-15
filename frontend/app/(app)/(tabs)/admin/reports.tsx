@@ -112,7 +112,7 @@ export default function AdminReportsScreen() {
     setReviewModalVisible(true);
   };
 
-  // every decision is irreversible (reports get closed, posts get removed, users get banned): ask first
+  // confirm ทุกครั้งเพราะมันเอากลับมาไม่ได้แล้ว
   const confirmDecision = (isFault: boolean, banPoster: boolean) => {
     const banText = banDays === null ? "permanently" : `for ${banDays} days`;
     const cfg = !isFault
@@ -142,7 +142,6 @@ export default function AdminReportsScreen() {
     ]);
   };
 
-  // All writes happen server-side in one admin-checked transaction
   const handleReviewDecision = async (isFault: boolean, banPoster: boolean) => {
     if (!selectedPost) return;
     setSubmittingAction(true);
@@ -191,7 +190,7 @@ export default function AdminReportsScreen() {
           contentContainerStyle={{ padding: 16 }}
           ListEmptyComponent={
             <Text style={styles.emptyText}>
-              No forums currently exceed 10 unique reports.
+              No forums currently exceed 4 unique reports.
             </Text>
           }
           renderItem={({ item }) => (

@@ -20,7 +20,6 @@ type Props = {
   onBack?: () => void;
 };
 
-// group_id ในตาราง tag_groups (tags.group_id เชื่อมมาที่ตารางนี้)
 const ALLERGEN_GROUP_ID = 6; // group_name = Allergen
 const DIET_GROUP_ID = 7; // group_name = Diet
 
@@ -98,7 +97,7 @@ export default function AllergiesForm({
 
       {loading && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color="#F28E2B" />
         </View>
       )}
 
@@ -171,13 +170,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     backgroundColor: "#FFFFFF",
   },
   chipSelected: {
-    backgroundColor: "#007AFF",
-    borderColor: "#007AFF",
-    shadowColor: "#007AFF",
+    backgroundColor: "#F28E2B",
+    borderColor: "#F28E2B",
+    shadowColor: "#F28E2B",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -193,19 +192,19 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#007AFF",
+    borderColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
   },
-  backText: { color: "#007AFF", fontWeight: "700", fontSize: 15 },
+  backText: { color: "#F28E2B", fontWeight: "700", fontSize: 15 },
   nextBtn: {
     flex: 2,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#007AFF",
+    shadowColor: "#F28E2B",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
@@ -220,7 +219,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   errorText: { color: "#7A5B00", fontSize: 13, marginBottom: 6 },
-  retryText: { color: "#007AFF", fontWeight: "700", fontSize: 13 },
+  retryText: { color: "#F28E2B", fontWeight: "700", fontSize: 13 },
   emptyText: {
     color: "#999",
     fontSize: 13,

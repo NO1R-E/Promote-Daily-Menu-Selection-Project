@@ -1,12 +1,4 @@
 // src/components/forms/IngredientPickerSheet.tsx
-//
-// หน้าต่าง (bottom sheet) สำหรับเลือกวัตถุดิบตอนสร้างโพสต์สูตรอาหาร มี 2 แท็บ:
-//   - "System"          : วัตถุดิบของระบบ (ingredients ที่ status = 'verified') ค้นด้วยชื่ออังกฤษ/ไทย
-//   - "My ingredients"  : วัตถุดิบที่ผู้ใช้เพิ่มเอง (ingredients ที่ status = 'unverified' และ user_id = ตัวเอง)
-//                         เลือก / เพิ่มใหม่ / ลบได้
-//
-// ทั้งสองแบบอยู่ในตาราง ingredients เดียวกัน id ที่ได้จึงเป็น ingredient_id เหมือนกัน
-// หน้าที่เรียกใช้เป็นเจ้าของรายการที่เลือก (picked) ส่วนหน้าต่างนี้แค่แจ้งผ่าน onToggle ว่ากดเลือก/ยกเลิกตัวไหน
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -30,12 +22,10 @@ import { UserIngredientForm } from "./UserIngredientForm";
 import IngredientForm from "./ingredientForm";
 import { ORANGE, ORANGE_DARK, ORANGE_SOFT, ORANGE_LIGHT, ORANGE_BORDER } from "./ingredientCommon";
 
-// ===== ชนิดข้อมูลที่ใช้ร่วมกับหน้า create-post =====
 export type IngredientSource = "system" | "user";
 
-// วัตถุดิบที่ถูกเลือกไว้ในโพสต์ (id = ingredient_id ทั้งของระบบและของผู้ใช้)
 export type PickedIngredient = {
-  key: string; // "system-12" / "user-5" ใช้แยกที่มาบนหน้าจอ
+  key: string; 
   source: IngredientSource;
   id: number;
   name: string;
@@ -46,10 +36,8 @@ export type PickableIngredient = { source: IngredientSource; id: number; name: s
 
 export const makeIngredientKey = (source: IngredientSource, id: number) => `${source}-${id}`;
 
-// ชื่อที่แสดง: ใช้อังกฤษก่อน ถ้าไม่มีใช้ไทย (วัตถุดิบของผู้ใช้อาจมีชื่อภาษาเดียว)
 const displayName = (en: string | null, th: string | null) => en || th || "";
 
-// result row of the search_ingredients function: every ingredient (verified or not), most used first
 type SystemItem = {
   ingredient_id: number;
   norm_en: string | null;
@@ -67,7 +55,6 @@ type MyItem = {
   ingredient_nutrients: NutrientRow[] | null;
 };
 
-// ดึงค่าสารอาหารหนึ่งตัว (ตามชื่อใน nutrients.nutrient_name) จากรายการวัตถุดิบของผู้ใช้
 const getAmount = (item: MyItem, nutrientName: string): number | null => {
   for (const row of item.ingredient_nutrients || []) {
     const n = Array.isArray(row.nutrients) ? row.nutrients[0] : row.nutrients;
@@ -90,29 +77,27 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
   const { user, isAdmin } = useAuth();
   const router = useRouter();
 
-  // open the ingredient info page (close the sheet first, picked items stay in the parent form)
   const openInfo = (id: number) => {
     onClose();
     router.push(`/(app)/ingredient/${id}` as any);
   };
 
-  // admin: id of the verified ingredient being edited (null = not editing)
   const [editId, setEditId] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const [tab, setTab] = useState<"system" | "mine">("system");
 
-  // ----- แท็บ System -----
+  // All ingredients
   const [sysQuery, setSysQuery] = useState("");
   const [sysResults, setSysResults] = useState<SystemItem[]>([]);
   const [sysLoading, setSysLoading] = useState(false);
   const [sysError, setSysError] = useState(false);
 
-  // ----- แท็บ My ingredients -----
+  // My ingredients 
   const [myMode, setMyMode] = useState<"list" | "form" | "edit">("list");
   const [myEditId, setMyEditId] = useState<number | null>(null);
   const [releasingId, setReleasingId] = useState<number | null>(null);
-  // my ingredients used by a recipe that still has a visible post -> locked (no edit, no delete), only "remove from my list"
+  //  ลิสต์วัตถุดิบของตัวเองที่โหลดจากฐานข้อมูล
   const [usedIds, setUsedIds] = useState<Set<number>>(new Set());
   const [myItems, setMyItems] = useState<MyItem[]>([]);
   const [myLoading, setMyLoading] = useState(false);
@@ -122,7 +107,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
   const isPicked = (source: IngredientSource, id: number) =>
     picked.some((p) => p.key === makeIngredientKey(source, id));
 
-  // ===== โหลดวัตถุดิบของตัวเอง =====
   const loadMine = useCallback(async () => {
     if (!user) return;
     try {
@@ -134,6 +118,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+      
       const { data: used } = await supabase.rpc("my_ingredients_in_live_use");
       setUsedIds(new Set(((used as (number | string)[] | null) ?? []).map(Number)));
       setMyItems((data as unknown as MyItem[]) || []);
@@ -145,7 +130,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     }
   }, [user]);
 
-  // เปิดหน้าต่างทีไร เริ่มที่แท็บ System และโหลดรายการของตัวเองไว้ล่วงหน้า (ใช้แสดงจำนวนบนแท็บ)
   useEffect(() => {
     if (visible) {
       setTab("system");
@@ -157,14 +141,14 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     }
   }, [visible, loadMine]);
 
-  // ===== ค้นหาวัตถุดิบของระบบ (หน่วงการพิมพ์ 300ms) =====
+  //  ค้นหาวัตถุดิบของระบบ
   useEffect(() => {
     if (!visible || tab !== "system") return;
 
     const timer = setTimeout(async () => {
       setSysLoading(true);
       try {
-        // all ingredients (verified or not), ordered by how many different users use them
+        
         const { data, error } = await supabase.rpc("search_ingredients", {
           p_query: sysQuery.trim(),
           p_limit: 30,
@@ -185,11 +169,11 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     return () => clearTimeout(timer);
   }, [sysQuery, tab, visible, reloadKey]);
 
-  // ===== ลบวัตถุดิบของตัวเอง (ผ่านฟังก์ชัน delete_user_ingredient) =====
+  //  ลบวัตถุดิบของตัวเอง 
   const handleDelete = async (item: MyItem) => {
     if (!user) return;
     const name = displayName(item.norm_en, item.norm_th);
-    if (item.status === "verified") return; // system ingredients are never deleted
+    if (item.status === "verified") return; 
     try {
       setDeletingId(item.ingredient_id);
 
@@ -198,7 +182,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
       });
       if (error) throw error;
 
-      // ถ้าวัตถุดิบนี้ถูกเลือกอยู่ในโพสต์ที่กำลังเขียน ให้เอาออกด้วย
       if (isPicked("user", item.ingredient_id)) {
         onToggle({ source: "user", id: item.ingredient_id, name });
       }
@@ -206,7 +189,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     } catch (error: any) {
       console.error("Error deleting user ingredient:", error?.message || error);
       if (String(error?.message || "").includes("INGREDIENT_IN_USE")) {
-        // ถูกใช้อยู่ในสูตรของโพสต์ จึงลบไม่ได้ (ตามกติกา: ต้องลบโพสต์ที่ใช้ก่อน)
         Alert.alert(
           "Can't delete",
           "This ingredient is used in a recipe, so it can't be deleted or edited. You can remove it from your list instead; it stays in the recipes that use it."
@@ -220,7 +202,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     }
   };
 
-  // used ingredient: give up ownership (user_id -> null). It stays in the recipes and in the ingredient list.
+  //  ยกเลิกการเป็นเจ้าของวัตถุดิบของตัวเอง (ถ้าวัตถุดิบนี้ถูกใช้ในสูตรอาหารอยู่)
   const handleRelease = async (item: MyItem) => {
     if (!user) return;
     try {
@@ -271,7 +253,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
     displayName(i.norm_en, i.norm_th).toLowerCase().includes(myQuery.trim().toLowerCase())
   );
 
-  // ปุ่มกลมท้ายแถว: ยังไม่เลือก = เครื่องหมาย +, เลือกแล้ว = เครื่องหมายถูก
+  // เลือก/ยกเลิกเลือกวัตถุดิบ
   const renderToggleMark = (on: boolean) => (
     <View style={[styles.mark, on && styles.markOn]}>
       <Ionicons name={on ? "checkmark" : "add"} size={16} color={on ? "#FFF" : ORANGE_DARK} />
@@ -295,7 +277,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        {/* แตะพื้นที่มืดด้านบนเพื่อปิด */}
+        
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
 
         <KeyboardAvoidingView
@@ -304,7 +286,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
         >
           <View style={styles.handle} />
 
-          {/* หัวหน้าต่าง */}
           <View style={styles.headerRow}>
             <Text style={styles.title}>Add ingredient</Text>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -312,15 +293,17 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
             </TouchableOpacity>
           </View>
 
-          {/* แท็บเลือกแหล่งวัตถุดิบ */}
           <View style={styles.tabs}>
             <TouchableOpacity
               style={[styles.tabBtn, tab === "system" && styles.tabBtnActive]}
               activeOpacity={0.8}
               onPress={() => setTab("system")}
             >
-              <Text style={[styles.tabText, tab === "system" && styles.tabTextActive]}>All ingredients</Text>
+              <Text style={[styles.tabText, tab === "system" && styles.tabTextActive]}>
+                All ingredients
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.tabBtn, tab === "mine" && styles.tabBtnActive]}
               activeOpacity={0.8}
@@ -330,9 +313,13 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                 My ingredients ({myItems.length})
               </Text>
             </TouchableOpacity>
+
+            
           </View>
 
-          {/* ===== เนื้อหาแท็บ System ===== */}
+          
+
+          {/* All ingredients */}
           {editing && (
             <ScrollView
               style={styles.body}
@@ -420,7 +407,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
             </View>
           )}
 
-          {/* ===== เนื้อหาแท็บ My ingredients ===== */}
+          {/* My ingredients */}
           {!editing && tab === "mine" && myMode === "list" && (
             <View style={styles.body}>
               <View style={styles.mineTopRow}>
@@ -461,7 +448,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                 ) : (
                   filteredMine.map((it) => {
                     const verified = it.status === "verified";
-                    // verified rows behave exactly like System-tab rows
                     const src: IngredientSource = verified ? "system" : "user";
                     const on = isPicked(src, it.ingredient_id);
                     const name = displayName(it.norm_en, it.norm_th);
@@ -473,6 +459,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                         onPress={() => onToggle({ source: src, id: it.ingredient_id, name })}
                       >
                         <View style={{ flex: 1 }}>
+                          
                           <Text style={styles.rowName}>{name}</Text>
                           <Text style={styles.rowSub}>
                             {fmt(getAmount(it, "energy"))} kcal · P {fmt(getAmount(it, "protein"))}g · C{" "}
@@ -490,7 +477,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
                         {verified ? (
                           renderEditBtn(it.ingredient_id)
                         ) : usedIds.has(it.ingredient_id) ? (
-                          // used by a recipe: locked, the owner can only give it up
+                          
                           <TouchableOpacity
                             style={styles.deleteBtn}
                             onPress={() => confirmRelease(it)}
@@ -539,7 +526,7 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
             </View>
           )}
 
-          {/* ===== ฟอร์มเพิ่มวัตถุดิบของตัวเอง ===== */}
+          {/* ฟอร์มเพิ่มวัตถุดิบของตัวเอง */}
           {!editing && tab === "mine" && myMode === "form" && (
             <ScrollView
               style={styles.body}
@@ -556,7 +543,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
             </ScrollView>
           )}
 
-          {/* owner edit of an unverified ingredient that no recipe uses yet */}
           {!editing && tab === "mine" && myMode === "edit" && myEditId !== null && (
             <ScrollView
               style={styles.body}
@@ -579,7 +565,6 @@ export default function IngredientPickerSheet({ visible, onClose, picked, onTogg
             </ScrollView>
           )}
 
-          {/* ปุ่มเสร็จสิ้น */}
           {showFooter && (
             <TouchableOpacity style={styles.doneBtn} activeOpacity={0.85} onPress={onClose}>
               <Text style={styles.doneBtnText}>

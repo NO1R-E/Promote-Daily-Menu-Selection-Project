@@ -81,7 +81,7 @@ export default function MyAccountScreen() {
                 {/* ปุ่มเปลี่ยนรหัสผ่าน */}
                 <TouchableOpacity
                     style={styles.actionButton}
-                    onPress={() => router.push("/profile/changePassword")} // 👈 ชี้ทางมาที่ไฟล์ใหม่
+                    onPress={() => router.push("/profile/changePassword")} 
                 >
                     <View style={styles.actionIconContainer}>
                         <Ionicons name="key-outline" size={20} color="#F28E2B" />
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     infoLabel: { fontSize: 16, color: "#3A3A3C", fontWeight: "500" },
     infoValue: { fontSize: 15, color: "#8E8E93" },
     roleBadge: {
-        color: "#F28E2B",
+        color: "#2b49f2",
         fontWeight: "bold",
         backgroundColor: "rgba(242, 142, 43, 0.1)",
         paddingHorizontal: 10,

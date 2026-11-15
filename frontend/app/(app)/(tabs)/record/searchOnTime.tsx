@@ -8,8 +8,7 @@ import { MEAL_TYPES, MEAL_LABEL, type MealType } from "@/src/api/record";
 import { searchRecipeIds, isEmptySearch } from "@/src/api/search";
 import SearchBar from "@/components/search/SearchBar";
 
-// recipes.img อาจเป็น array ของ URL (text[]) หรือ string ธรรมดา: หยิบรูปแรกที่ใช้ได้เสมอ
-// (<Image uri> รับได้เฉพาะ string ถ้าส่ง array ไปจะเกิด error "cannot be cast from ReadableNativeArray to String")
+
 const getFirstImage = (img: any): string | null => {
   let value = img;
   // กรณีเก็บเป็นสตริง JSON เช่น '["https://..."]'
@@ -28,12 +27,13 @@ export default function FoodSearchScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { meal_type, selected_date } = useLocalSearchParams<{ meal_type?: string; selected_date?: string }>();
+
+  // กำหนดค่าเริ่มต้นของ selectedMealType จาก query param meal_type (ถ้าไม่ถูกต้องให้เป็น breakfast)
   const initialMealType: MealType = MEAL_TYPES.includes((meal_type || "").toLowerCase() as MealType)
     ? (meal_type || "").toLowerCase() as MealType
     : "breakfast";
   const [selectedMealType, setSelectedMealType] = useState<MealType>(initialMealType);
 
-  // state หลักของหน้านี้ - รายการเมนู, คำค้นหา, และ state ของ pagination
   const [recipes, setRecipes] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -42,7 +42,7 @@ export default function FoodSearchScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ดึงเมนูทีละหน้า ถ้ามีคำค้นหาก็กรองไปด้วยเลย
+  // ฟังก์ชันดึงข้อมูลสูตรอาหารจากฐานข้อมูล Supabase
   const fetchRecipesFromDB = async (queryText: string, pageIndex: number, isNewSearch = false) => {
     try {
       if (isNewSearch) {
@@ -60,7 +60,7 @@ export default function FoodSearchScreen() {
         .range(from, to)
         .order("recipe_id", { ascending: true });
 
-      // มีคำค้นหา: ใช้ฟังก์ชันค้นหาตัวเดียวกับหน้า forum (ชื่อสูตร ชื่อโพสต์ แท็กหลัก วัตถุดิบ)
+      // ถ้ามีคำค้นหา ให้ดึง recipe_id ที่ตรงกับคำค้นหาก่อน แล้วใช้ in() filter
       if (!isEmptySearch(queryText)) {
         const idList = await searchRecipeIds(queryText);
         if (idList.length === 0) {
@@ -87,7 +87,6 @@ export default function FoodSearchScreen() {
           };
         });
 
-        // ได้น้อยกว่า PAGE_SIZE แปลว่าหมดแล้ว ไม่ต้องโหลดต่อ
         if (data.length < PAGE_SIZE) {
           setHasMore(false);
         } else {
@@ -109,14 +108,12 @@ export default function FoodSearchScreen() {
     }
   };
 
-  // พิมพ์คำค้นหาใหม่ทีไร รีเซ็ต page แล้วดึงใหม่ตั้งแต่หน้าแรก
   useEffect(() => {
     setPage(0);
     setHasMore(true);
     fetchRecipesFromDB(searchQuery, 0, true);
   }, [searchQuery]);
 
-  // เลื่อนใกล้ล่างสุดแล้วค่อยโหลดหน้าถัดไป
   const handleLoadMore = () => {
     if (!isFetchingMore && !isLoadingRecipes && hasMore) {
       const nextPage = page + 1;
@@ -136,14 +133,14 @@ export default function FoodSearchScreen() {
   try {
     setIsSubmitting(true);
 
-    // insert ลง record_item ทีเดียวจบ ไม่ต้องเช็คว่ามีแถวเดิมอยู่ก่อนไหม
+    // บันทึกข้อมูลลงตาราง record_item
     const { error: insertItemError } = await supabase
       .from("record_item")
       .insert({
-        user_id: user.id,            // ID ผู้ใช้งาน
-        record_date: targetDate,     // วันที่บันทึก
-        meal_type: selectedMealType, // breakfast | lunch | dinner | snack
-        recipe_id: recipeId          // ID เมนูอาหาร
+        user_id: user.id,            
+        record_date: targetDate,     
+        meal_type: selectedMealType, 
+        recipe_id: recipeId          
       });
 
     if (insertItemError) throw insertItemError;
@@ -161,7 +158,7 @@ export default function FoodSearchScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
@@ -169,7 +166,7 @@ export default function FoodSearchScreen() {
         <Text style={styles.headerTitle}>Select a menu</Text>
       </View>
 
-      {/* เลือกประเภทมื้ออาหาร: เลือกซ้ำได้เพื่อเพิ่มหลายเมนูในมื้อเดียวกัน */}
+      {/* เลือกประเภทมื้ออาหาร */}
       <Text style={styles.mealTypeHeading}>Record meal at</Text>
       <View style={styles.mealTypeContainer}>
         {MEAL_TYPES.map((type) => (
@@ -195,7 +192,7 @@ export default function FoodSearchScreen() {
 
       {isLoadingRecipes || isSubmitting ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#F28E2B" />
           <Text style={styles.loadingText}>
             {isLoadingRecipes ? "กำลังค้นหาคลังอาหาร..." : "กำลังบันทึกข้อมูล..."}
           </Text>
@@ -219,12 +216,12 @@ export default function FoodSearchScreen() {
             </TouchableOpacity>
           )}
           contentContainerStyle={{ paddingBottom: 20 }}
-          onEndReached={handleLoadMore} // เลื่อนล่างสุดดึงเพิ่ม
-          onEndReachedThreshold={0.4} // สั่งโหลดเพิ่มเมื่อเลื่อนถึง 40% สุดท้าย
+          onEndReached={handleLoadMore} 
+          onEndReachedThreshold={0.4} 
           ListFooterComponent={
             isFetchingMore ? (
               <View style={{ paddingVertical: 15 }}>
-                <ActivityIndicator size="small" color="#007AFF" />
+                <ActivityIndicator size="small" color="#F28E2B" />
               </View>
             ) : null
           }
@@ -252,7 +249,6 @@ const styles = StyleSheet.create({
   mealTypeText: { fontSize: 13, fontWeight: "600", color: "#555" },
   mealTypeTextSelected: { color: "#FFFFFF" },
 
-  // Style กล่องค้นหา
   searchBar: { marginBottom: 15 },
 
   foodCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#F8F9FA", padding: 12, borderRadius: 16, marginBottom: 12 },

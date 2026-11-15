@@ -16,8 +16,8 @@ export interface Targets {
   protein: number; // g
   carb: number; // g
   fiber: number; // g
-  sugar: number; // g (ขีดจำกัดสูงสุด)
-  sodium: number; // mg (ขีดจำกัดสูงสุด)
+  sugar: number; // g 
+  sodium: number; // mg 
 }
 
 // ค่าเดิมของแอป ใช้เป็น fallback เมื่อยังไม่มีข้อมูลโปรไฟล์ครบ

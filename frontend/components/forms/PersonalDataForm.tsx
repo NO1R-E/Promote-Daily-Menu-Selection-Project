@@ -44,11 +44,39 @@ export default function PersonalDataForm({
     initialData.intensity_exercise || "",
   );
 
+  // ฟังก์ชันกรองให้รับเฉพาะตัวเลข 
+  const handleNumericChange = (text: string, setter: (val: string) => void) => {
+    const cleaned = text.replace(/[^0-9]/g, "");
+    setter(cleaned);
+  };
+
   const handleSubmit = () => {
     if (!gender || !age || !height || !weight || !intensity) {
       Alert.alert("Missing info", "Please fill in every field.");
       return;
     }
+    const ageNum = Number(age);
+    const heightNum = Number(height);
+    const weightNum = Number(weight);
+
+    // ตรวจสอบช่วงอายุ (1 - 120 ปี)
+    if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
+      Alert.alert("Invalid age", "Please enter an age between 1 and 120 years.");
+      return;
+    }
+
+    // ตรวจสอบช่วงส่วนสูง (50 - 250 ซม.)
+    if (isNaN(heightNum) || heightNum < 50 || heightNum > 250) {
+      Alert.alert("Invalid height", "Please enter a height between 50 and 250 cm.");
+      return;
+    }
+
+    // ตรวจสอบช่วงน้ำหนัก (20 - 300 กก.)
+    if (isNaN(weightNum) || weightNum < 20 || weightNum > 300) {
+      Alert.alert("Invalid weight", "Please enter a weight between 20 and 300 kg.");
+      return;
+    }
+    
     onSubmit({
       gender: gender as OnboardingFormData["gender"],
       age,
@@ -93,7 +121,7 @@ export default function PersonalDataForm({
               style={styles.input}
               keyboardType="number-pad"
               value={age}
-              onChangeText={setAge}
+              onChangeText={(text) => handleNumericChange(text, setAge)}
               placeholder="Years"
               placeholderTextColor="#B0B0B5"
             />
@@ -107,7 +135,7 @@ export default function PersonalDataForm({
               style={styles.input}
               keyboardType="number-pad"
               value={height}
-              onChangeText={setHeight}
+              onChangeText={(text) => handleNumericChange(text, setHeight)}
               placeholder="cm"
               placeholderTextColor="#B0B0B5"
             />
@@ -118,7 +146,7 @@ export default function PersonalDataForm({
               style={styles.input}
               keyboardType="number-pad"
               value={weight}
-              onChangeText={setWeight}
+              onChangeText={(text) => handleNumericChange(text, setWeight)}
               placeholder="kg"
               placeholderTextColor="#B0B0B5"
             />
@@ -171,7 +199,7 @@ const styles = StyleSheet.create({
   input: {
     height: 52,
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     paddingHorizontal: 16,
@@ -181,7 +209,7 @@ const styles = StyleSheet.create({
   dropdown: {
     height: 52,
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     paddingHorizontal: 16,
@@ -195,19 +223,19 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#007AFF",
+    borderColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
   },
-  backText: { color: "#007AFF", fontWeight: "700", fontSize: 15 },
+  backText: { color: "#F28E2B", fontWeight: "700", fontSize: 15 },
   nextBtn: {
     flex: 2,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#007AFF",
+    shadowColor: "#F28E2B",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,

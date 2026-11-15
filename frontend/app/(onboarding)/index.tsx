@@ -33,7 +33,6 @@ export default function OnboardingWizard() {
 
   const [formData, setFormData] = useState<OnboardingFormData>(BLANK_FORM);
 
-  // โหลด draft ที่เคยเก็บไว้ (ถ้ามี) ตอนเปิดหน้านี้ครั้งแรก แทนที่จะเริ่มที่ step 1 ว่างเปล่าเสมอ
   useEffect(() => {
     const loadDraft = async () => {
       if (!user) {
@@ -63,7 +62,6 @@ export default function OnboardingWizard() {
     loadDraft();
   }, [user]);
 
-  // เซฟ draft ทุกครั้งที่กด Next - เก็บแค่ formData + step ปัจจุบัน ไม่แตะตารางจริงเลย
   const saveDraft = async (
     nextStep: number,
     mergedData: OnboardingFormData,
@@ -81,7 +79,6 @@ export default function OnboardingWizard() {
       );
       if (error) throw error;
     } catch (error) {
-      // เซฟ draft ไม่สำเร็จไม่ควรบล็อกผู้ใช้ไม่ให้ทำ onboarding ต่อ แค่ log ไว้เฉยๆ
       console.error("Error saving onboarding draft:", error);
     }
   };
@@ -117,7 +114,7 @@ export default function OnboardingWizard() {
       });
       if (error) throw error;
 
-      // onboarding เสร็จสมบูรณ์แล้ว ไม่ต้องเก็บ draft ไว้อีกต่อไป
+      // onboarding เสร็จสมบูรณ์แล้ว ไม่ต้องเก็บ draft 
       await supabase.from("onboarding_drafts").delete().eq("user_id", user.id);
 
       await refreshUserData();
@@ -132,7 +129,7 @@ export default function OnboardingWizard() {
   if (loadingDraft) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#F28E2B" />
       </View>
     );
   }

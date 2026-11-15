@@ -1,6 +1,4 @@
 // src/components/forms/UserIngredientForm.tsx
-// ฟอร์มเพิ่มวัตถุดิบของผู้ใช้ (ตัวบางๆ ครอบ IngredientForm ที่ใช้ร่วมกับฝั่งแอดมิน)
-// วัตถุดิบถูกบันทึกลงตาราง ingredients (status = 'unverified', source 'user') ผ่านฟังก์ชัน create_ingredient
 
 import IngredientForm from "./ingredientForm";
 

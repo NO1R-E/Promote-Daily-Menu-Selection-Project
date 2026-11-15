@@ -61,7 +61,7 @@ export default function GoalForm({
                 <Ionicons
                   name={g.icon}
                   size={20}
-                  color={isSelected ? "#fff" : "#007AFF"}
+                  color={isSelected ? "#fff" : "#F28E2B"}
                 />
               </View>
               <View style={styles.optionTextBlock}>
@@ -71,7 +71,7 @@ export default function GoalForm({
                 <Text style={styles.optionDescription}>{g.description}</Text>
               </View>
               {isSelected && (
-                <Ionicons name="checkmark-circle" size={22} color="#007AFF" />
+                <Ionicons name="checkmark-circle" size={22} color="#F28E2B" />
               )}
             </TouchableOpacity>
           );
@@ -109,27 +109,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     borderRadius: 16,
     padding: 14,
   },
   optionSelected: {
-    borderColor: "#007AFF",
-    backgroundColor: "#F0F7FF",
+    borderColor: "#F28E2B",
+    backgroundColor: "#FFF5EA",
   },
   iconCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#EAF3FF",
+    backgroundColor: "#FFF5EA",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
   },
-  iconCircleSelected: { backgroundColor: "#007AFF" },
+  iconCircleSelected: { backgroundColor: "#F28E2B" },
   optionTextBlock: { flex: 1 },
   optionTitle: { fontSize: 16, fontWeight: "600", color: "#1C1C1E" },
-  optionTitleSelected: { color: "#007AFF" },
+  optionTitleSelected: { color: "#F28E2B" },
   optionDescription: { fontSize: 13, color: "#8A8A8E", marginTop: 2 },
 
   buttonRow: { flexDirection: "row", gap: 12, marginTop: "auto", paddingTop: 20 },
@@ -138,24 +138,24 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#007AFF",
+    borderColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
   },
-  backText: { color: "#007AFF", fontWeight: "700", fontSize: 15 },
+  backText: { color: "#F28E2B", fontWeight: "700", fontSize: 15 },
   nextBtn: {
     flex: 2,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#007AFF",
+    shadowColor: "#F28E2B",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
-  nextBtnDisabled: { backgroundColor: "#B7D6FF", shadowOpacity: 0 },
+  nextBtnDisabled: { backgroundColor: "#F9D5AE", shadowOpacity: 0 },
   nextText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 });

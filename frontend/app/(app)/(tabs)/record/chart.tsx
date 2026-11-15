@@ -7,22 +7,17 @@ import { LineChart } from "react-native-chart-kit";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
-// อ่านแคลอรี่ต่อ 1 serving จากตาราง recipe_features (คำนวณไว้ในฐานข้อมูลแล้ว)
 const getCalories = (features: any): number => {
-  // recipe_id เป็น PK+FK จึงได้เป็น object เดียว แต่กันกรณีที่ได้ array ไว้ด้วย
+
   const f = Array.isArray(features) ? features[0] : features;
-  return Number(f?.calories) || 0; // numeric จาก Postgres อาจมาเป็น string
+  return Number(f?.calories) || 0; 
 };
 
-// ===== [BMI] การ์ด BMI (คำนวณจากน้ำหนัก/ส่วนสูง ไม่มี column bmi) =====
-// สีหลักของแอป
 const ORANGE = "#F28E2B";
 
-// ช่วงของแถบสเกล (ค่า BMI ที่ต่ำ/สูงกว่านี้จะถูกตรึงไว้ที่ขอบ)
 const SCALE_MIN = 15;
 const SCALE_MAX = 35;
 
-// เกณฑ์สำหรับคนเอเชีย/ไทย ถ้าอยากใช้เกณฑ์ WHO ให้เปลี่ยน 23 -> 25 และ 25 -> 30
 const SEGMENTS = [
   { label: "Underweight", from: 15, to: 18.5, color: "#3B82F6" },
   { label: "Normal", from: 18.5, to: 23, color: "#34C759" },
@@ -46,7 +41,6 @@ function BmiCard({ weightKg, heightCm }: Props) {
   const weight = Number(weightKg);
   const heightM = Number(heightCm) / 100;
 
-  // ถ้ายังไม่มีน้ำหนัก/ส่วนสูง ให้แสดงข้อความแทน
   if (!weight || !heightM) {
     return (
       <View style={bmiStyles.card}>
@@ -59,7 +53,6 @@ function BmiCard({ weightKg, heightCm }: Props) {
   const bmi = weight / (heightM * heightM);
   const category = getCategory(bmi);
 
-  // ตำแหน่งตัวชี้บนแถบ (เป็น % ของความกว้าง)
   const clamped = Math.min(Math.max(bmi, SCALE_MIN), SCALE_MAX);
   const pointerLeft = ((clamped - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100;
 
@@ -74,7 +67,6 @@ function BmiCard({ weightKg, heightCm }: Props) {
 
       <Text style={bmiStyles.bmiValue}>{bmi.toFixed(1)}</Text>
 
-      {/* แถบสเกล: ความกว้างของแต่ละช่วงเป็นสัดส่วนตามช่วง BMI จริง */}
       <View style={bmiStyles.scaleWrapper}>
         <View style={bmiStyles.scaleBar}>
           {SEGMENTS.map((s) => (
@@ -85,11 +77,9 @@ function BmiCard({ weightKg, heightCm }: Props) {
           ))}
         </View>
 
-        {/* ตัวชี้ตำแหน่ง BMI */}
         <View style={[bmiStyles.pointer, { left: `${pointerLeft}%` }]} />
       </View>
 
-      {/* ตัวเลขขอบเขตแต่ละช่วง วางตามตำแหน่งจริงบนแถบ */}
       <View style={bmiStyles.scaleLabels}>
         {[18.5, 23, 25].map((v) => (
           <Text
@@ -146,13 +136,13 @@ const bmiStyles = StyleSheet.create({
   emptyText: { fontSize: 13, color: "#8E8E93", marginTop: 8 },
 });
 
-// ===== หน้าจอสถิติแคลอรี่ (รายเดือน) =====
+// สถิติแคลอรี่รายเดือน
 const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ];
 
-// สร้างสตริงวันที่ "YYYY-MM-DD" ตามเวลาท้องถิ่น (ไม่ใช้ toISOString เพราะช่วงหลังเที่ยงคืนในเวลาไทยจะเพี้ยนไปเป็นวันก่อนหน้า)
+// ฟังก์ชันช่วยแปลงปี/เดือน/วัน เป็นสตริง "YYYY-MM-DD" สำหรับใช้ใน query ของ Supabase
 const toDateStr = (year: number, monthIndex: number, day: number) =>
     `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
@@ -162,7 +152,6 @@ export default function CalorieChartScreen() {
 
     const now = new Date();
 
-    // เดือนที่กำลังดูอยู่ (เก็บเป็นวันที่ 1 ของเดือน) เริ่มต้นที่เดือนปัจจุบัน
     const [viewMonth, setViewMonth] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
     const isCurrentMonth =
         viewMonth.getFullYear() === now.getFullYear() && viewMonth.getMonth() === now.getMonth();
@@ -185,7 +174,6 @@ export default function CalorieChartScreen() {
             // เดือนปัจจุบันแสดงถึงวันนี้เท่านั้น (ไม่แสดงวันในอนาคต) เดือนที่ผ่านมาแล้วแสดงครบทุกวัน
             const lastDay = isCurrentMonth ? now.getDate() : daysInMonth;
 
-            // ดึงทั้งเดือนในคำขอเดียว: record_item -> recipes -> recipe_features
             const { data, error } = await supabase
                 .from("record_item")
                 .select(`
@@ -202,7 +190,7 @@ export default function CalorieChartScreen() {
 
             if (error) throw error;
 
-            // รวมแคลอรี่ของแต่ละวัน (index 0 = วันที่ 1)
+            // รวมแคลอรี่ของแต่ละวัน
             const perDay: number[] = new Array(lastDay).fill(0);
             (data || []).forEach((item: any) => {
                 const day = Number(String(item.record_date).slice(8, 10));
@@ -213,7 +201,6 @@ export default function CalorieChartScreen() {
 
             const rounded = perDay.map((v) => Math.round(v));
 
-            // แกน X แสดงวันที่ 1, 5, 10, 15, ... เพื่อไม่ให้ตัวเลขแน่นเกินไป
             const labels = rounded.map((_, i) => {
                 const day = i + 1;
                 return day === 1 || day % 5 === 0 ? String(day) : "";
@@ -222,7 +209,7 @@ export default function CalorieChartScreen() {
             setDailyCalories(rounded);
             setDayLabels(labels);
 
-            // ค่าเฉลี่ยต่อวัน คิดเฉพาะวันที่มีการบันทึกอาหาร (ไม่ให้วันที่ไม่ได้บันทึกดึงค่าเฉลี่ยลง)
+            // ค่าเฉลี่ยต่อวัน คิดเฉพาะวันที่มีการบันทึกอาหาร 
             const logged = rounded.filter((v) => v > 0);
             setLoggedDays(logged.length);
             setAvgCalories(logged.length > 0 ? Math.round(logged.reduce((a, b) => a + b, 0) / logged.length) : 0);
@@ -251,7 +238,7 @@ export default function CalorieChartScreen() {
 
     return (
         <View style={styles.mainContainer}>
-            {/* ส่วนหัวหน้าจอ */}
+            
             <View style={styles.header}>
                 <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
@@ -262,7 +249,7 @@ export default function CalorieChartScreen() {
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-                {/* กล่องสรุปภาพรวมของเดือนที่เลือก */}
+                {/* สรุปแคลอรี่ต่อวัน */}
                 <View style={styles.summaryCard}>
                     <Text style={styles.summaryLabel}>Daily average · {monthTitle}</Text>
 
@@ -273,7 +260,7 @@ export default function CalorieChartScreen() {
                     <Text style={styles.summarySub}>from {loggedDays} logged {loggedDays === 1 ? "day" : "days"}</Text>
                 </View>
 
-                {/* บล็อกแสดงกราฟเส้นแคลอรี่รายวันของทั้งเดือน */}
+                {/* กราฟแคลอรี่ */}
                 <View style={styles.chartWrapper}>
                     <View style={styles.monthRow}>
                         <TouchableOpacity style={styles.monthBtn} onPress={goPrevMonth}>
@@ -321,7 +308,6 @@ export default function CalorieChartScreen() {
                     )}
                 </View>
 
-                {/* [BMI] การ์ด BMI: ชื่อ column weight/height ต้องตรงกับตาราง personalData ของคุณ */}
                 <View style={{ marginTop: 20 }}>
                     <BmiCard weightKg={personalData?.weight} heightCm={personalData?.height} />
                 </View>

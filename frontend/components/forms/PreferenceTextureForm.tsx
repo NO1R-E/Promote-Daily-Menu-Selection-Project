@@ -14,7 +14,7 @@ import { OnboardingFormData, UserPref } from "@/src/types/OnboardingType";
 
 type Tag = { tag_id: number; tag_name: string };
 
-// group_id ในตาราง tag_groups ของแท็กที่ใช้ถามความชอบ (เดิมใช้ tag_category = "LIKING")
+// group_id = textures
 const TEXTURE_GROUP_ID = 4;
 
 type Props = {
@@ -59,7 +59,6 @@ export default function PreferenceForm({
   const setVector = (tagId: number, vector: number) => {
     setPrefs((prev) => {
       const rest = prev.filter((p) => p.tag_id !== tagId);
-      // tapping the already-selected value clears it back to neutral/skipped
       if (getVector(tagId) === vector) return rest;
       return [...rest, { tag_id: tagId, vector }];
     });
@@ -69,12 +68,12 @@ export default function PreferenceForm({
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>What do you like textures?</Text>
-        <Text style={styles.subtitle}>Tap like neutral or dislike.</Text>
+        <Text style={styles.subtitle}>Tap like or dislike.</Text>
       </View>
 
       {loading && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color="#F28E2B" />
         </View>
       )}
 
@@ -176,7 +175,7 @@ const styles = StyleSheet.create({
   questionCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
@@ -189,7 +188,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: "#E5E5EA",
+    borderColor: "#FFEBD6",
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
@@ -207,25 +206,25 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#007AFF",
+    borderColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
   },
-  backText: { color: "#007AFF", fontWeight: "700", fontSize: 15 },
+  backText: { color: "#F28E2B", fontWeight: "700", fontSize: 15 },
   nextBtn: {
     flex: 2,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#F28E2B",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#007AFF",
+    shadowColor: "#F28E2B",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
-  nextBtnDisabled: { backgroundColor: "#B7D6FF", shadowOpacity: 0 },
+  nextBtnDisabled: { backgroundColor: "#F9D5AE", shadowOpacity: 0 },
   nextText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 
   errorBox: {
@@ -235,7 +234,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   errorText: { color: "#7A5B00", fontSize: 13, marginBottom: 6 },
-  retryText: { color: "#007AFF", fontWeight: "700", fontSize: 13 },
+  retryText: { color: "#F28E2B", fontWeight: "700", fontSize: 13 },
   emptyText: {
     color: "#999",
     fontSize: 13,

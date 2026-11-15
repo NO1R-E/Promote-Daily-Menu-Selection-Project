@@ -1,10 +1,5 @@
 // src/components/forms/IngredientTagPicker.tsx
-// เลือกแท็กของวัตถุดิบ แสดง "ทุกกลุ่ม" ใน tag_groups (ทั้งผู้ใช้และแอดมินเห็นเหมือนกัน)
-// แต่ละกลุ่มกดเปิด/ปิดได้ แท็กในกลุ่มจะโผล่เมื่อกดเปิดกลุ่มนั้น
-// มีแถบ "Selected" สรุปแท็กที่เลือกไว้ด้านบน (กด x เพื่อเอาออกได้) เห็นได้แม้ทุกกลุ่มจะพับอยู่
-//
-// - กลุ่มที่ยังไม่มีแท็กที่ใช้งานอยู่ (is_active) จะแสดงเป็นสีเทาว่า "No tags" (ไม่ซ่อน)
-// - แท็กที่อยู่ในกลุ่มที่ไม่มีใน tag_groups (หรืออ่าน tag_groups ไม่ได้) ก็ยังแสดง โดยตั้งชื่อกลุ่มว่า "Group <id>"
+
 
 import { useEffect, useState } from "react";
 import {
@@ -272,8 +267,7 @@ export default function IngredientTagPicker({
 
   return (
     <View>
-      {/* สรุปแท็กที่เลือกไว้ (เห็นได้แม้กลุ่มพับอยู่) */}
-      {/* Tag meanings for one group (opened with the info button in the group header) */}
+      {/* จำนวนแท็กที่เลือกไว้ (เห็นได้แม้กลุ่มพับอยู่) */}
       <Modal
         visible={infoGroup != null}
         transparent

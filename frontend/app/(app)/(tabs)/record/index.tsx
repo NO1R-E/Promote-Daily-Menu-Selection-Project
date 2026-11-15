@@ -27,6 +27,7 @@ const ORANGE_SOFT = "#FFEBD6";
 const ORANGE_LIGHT = "#FFF5EA";
 const ORANGE_TRACK = "#F9D5AE";
 
+// ฟังก์ชันช่วยแปลงค่า recipe_features ที่ดึงมาจากฐานข้อมูล ให้เป็น object ของสารอาหารหลัก
 const mapRecipeFeatures = (features: any) => {
   const f = Array.isArray(features) ? features[0] : features;
   const num = (v: any) => Number(v) || 0;
@@ -42,6 +43,7 @@ const mapRecipeFeatures = (features: any) => {
   };
 };
 
+// ฟังก์ชันช่วยดึงรูปภาพตัวแรกจากค่า img ที่อาจเป็น string, JSON array หรือ array ของ string
 const getFirstImage = (img: any): string | null => {
   let value = img;
   if (typeof value === "string" && value.trim().startsWith("[")) {
@@ -67,8 +69,8 @@ export default function TrackingRecordScreen() {
   const [selectedDate, setSelectedDate] = useState<string>(localDateString());
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
 
+  // ฟังก์ชันเปลี่ยนวัน (กดปุ่ม < หรือ >) โดยไม่ให้ข้ามวันปัจจุบันไปข้างหน้า
   const changeDate = (daysToShift: number) => {
-    // build from y/m/d parts so the shift stays in the user's local calendar (no UTC drift)
     const [y, m, d] = selectedDate.split("-").map(Number);
     const formattedDate = localDateString(new Date(y, m - 1, d + daysToShift));
     const todayStr = localDateString();
@@ -79,9 +81,10 @@ export default function TrackingRecordScreen() {
     setSelectedDate(formattedDate);
   };
 
-  // Only today can be changed; older days are read-only (the database enforces this too)
+  // ตรวจสอบว่า selectedDate เป็นวันปัจจุบันหรือไม่
   const isToday = selectedDate === localDateString();
 
+  // ฟังก์ชันดึงค่าเป้าหมายสารอาหารประจำวันของผู้ใช้จากตาราง user_daily_targets
   const fetchTargets = async () => {
     if (!user) return;
     try {
@@ -112,6 +115,7 @@ export default function TrackingRecordScreen() {
     }
   };
 
+  // ฟังก์ชันดึงรายการอาหารที่บันทึกไว้ของผู้ใช้ในวันนั้น ๆ จากตาราง record_item และ recipes
   const fetchDailyRecords = async () => {
     if (!user) return;
     try {
@@ -175,7 +179,7 @@ export default function TrackingRecordScreen() {
     }, [user, personalData]),
   );
 
-  // กดปุ่ม + แล้วนำไปหน้า searchOnTime ทันที พร้อมส่งค่า meal_type ไปด้วย
+  // ฟังก์ชันช่วยเปิดหน้า recipe ใน forum โดยใช้ router ของ expo-router
   const handleAddFoodDirect = (
     mealType: (typeof MEAL_TYPES)[number] = "breakfast",
   ) => {
@@ -185,6 +189,7 @@ export default function TrackingRecordScreen() {
     });
   };
 
+  // ฟังก์ชันลบรายการอาหารที่บันทึกไว้ในวันนั้น ๆ โดยตรวจสอบว่าเป็นวันปัจจุบันหรือไม่
   const handleDeleteFood = (mealItem: any, mealName: string) => {
     Alert.alert(
       "Remove food",
@@ -225,6 +230,7 @@ export default function TrackingRecordScreen() {
     );
   };
 
+  // คำนวณสารอาหารรวมของรายการอาหารทั้งหมดในวันนั้น ๆ
   const totalCalories = Math.round(
     items.reduce(
       (sum, item) => sum + (item.calculatedNutrients?.calories || 0),
@@ -265,6 +271,7 @@ export default function TrackingRecordScreen() {
     ),
   );
 
+  // คำนวณค่าต่าง ๆ สำหรับวงแหวนแสดงเปอร์เซ็นต์การบริโภคแคลอรี่
   const RING_SIZE = 105;
   const RING_STROKE = 8;
   const ringRadius = (RING_SIZE - RING_STROKE) / 2;
@@ -295,7 +302,7 @@ export default function TrackingRecordScreen() {
   return (
     <View style={styles.mainContainer}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* ส่วนที่ 1: Header ตัวสลับวันที่ */}
+        {/* วันที่ และ สถิติ */}
         <View style={styles.dateHeader}>
           <View style={styles.datePickerContainer}>
             <TouchableOpacity
@@ -337,9 +344,9 @@ export default function TrackingRecordScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ส่วนที่ 2: Dashboard */}
+        {/* มื้ออาหาร และ แคลอรี่ */}
         <View style={styles.topDashboard}>
-          {/* Meals On Time Card */}
+          {/* Meals On Time */}
           <View style={styles.onTimeCard}>
             <View style={styles.onTimeCardHeader}>
               <Text style={styles.cardTitle}>Meals On Time</Text>
@@ -369,7 +376,7 @@ export default function TrackingRecordScreen() {
                 <View key={mealType} style={styles.mealGroup}>
                   <Text style={styles.mealGroupTitle}>{mealLabel}</Text>
 
-                  {/* เงื่อนไข: ถ้ายังไม่มีเมนูในมื้อนี้ ให้แสดงข้อความแจ้งเตือน */}
+                  {/* ถ้ายังไม่มีเมนูในมื้อนี้ แสดงข้อความแจ้งเตือน */}
                   {mealItems.length === 0 ? (
                     <View style={styles.emptyMealRow}>
                       <Text style={styles.emptyMealText}>
@@ -437,11 +444,12 @@ export default function TrackingRecordScreen() {
             })}
           </View>
 
-          {/* Calories Card */}
+          {/* Calories */}
           <View style={styles.calorieCard}>
             <Text style={styles.cardTitle}>Calories</Text>
             <View style={styles.circleWrapper}>
               <Svg width={RING_SIZE} height={RING_SIZE}>
+                {/* เส้นขอบวงกลม */}
                 <Circle
                   cx={RING_SIZE / 2}
                   cy={RING_SIZE / 2}
@@ -450,6 +458,7 @@ export default function TrackingRecordScreen() {
                   strokeWidth={RING_STROKE}
                   fill="none"
                 />
+                {/* ส่วนที่แสดงเปอร์เซ็นต์ของวงกลม */}
                 <Circle
                   cx={RING_SIZE / 2}
                   cy={RING_SIZE / 2}
@@ -475,7 +484,7 @@ export default function TrackingRecordScreen() {
           </View>
         </View>
 
-        {/* ส่วนที่ 3: แถบสารอาหาร */}
+        {/* แถบสารอาหาร */}
         <View style={styles.macroSection}>
           <View style={styles.macroRow}>
             <View style={[styles.colorDot, { backgroundColor: "#000000" }]} />
@@ -644,7 +653,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // สไตล์สำหรับกล่องข้อความเมื่อยังไม่มีเมนูในมื้อนั้น
   emptyMealRow: {
     backgroundColor: "#FFF",
     paddingVertical: 10,

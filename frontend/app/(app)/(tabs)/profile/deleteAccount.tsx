@@ -6,10 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/src/config/supabase";
 import { useAuth } from "@/src/contexts/AuthContext";
 
-const CONFIRM_WORD = "delete"; // พิมพ์ได้ทั้งตัวพิมพ์เล็ก/ใหญ่
+const CONFIRM_WORD = "delete";
 
-// bucket ที่เก็บรูปของผู้ใช้ (ลบแบบ best-effort หลังลบบัญชีสำเร็จ)
-const AVATAR_BUCKETS = ["avatar", "avatars"]; // รูปโปรไฟล์ เก็บที่ <userId>/...
+const AVATAR_BUCKETS = ["avatar", "avatars"]; 
 const RECIPE_IMAGE_BUCKET = "recipe-images";
 
 // ข้อความ error ที่ฟังก์ชัน delete_my_account ส่งมา -> ข้อความที่แสดงให้ผู้ใช้
@@ -18,9 +17,6 @@ const DELETE_ERRORS: Record<string, string> = {
     NOT_AUTHENTICATED: "Please log in again and try once more.",
 };
 
-// ตรวจรหัสผ่านด้วย client ชั่วคราว (ไม่เก็บ session และไม่ส่งอีเวนต์เข้า AuthContext)
-// ถ้าใช้ supabase client หลักเรียก signInWithPassword จะเกิดอีเวนต์ SIGNED_IN ทำให้แอปพาผู้ใช้กลับหน้า home
-// คืน true = รหัสถูก, false = รหัสผิด, ส่วน error อื่น (เช่น เน็ตหลุด) จะ throw ออกไปให้ผู้เรียกจัดการ
 const verifyPassword = async (email: string, password: string): Promise<boolean> => {
     const url = ((supabase as any).supabaseUrl as string) || (process.env.EXPO_PUBLIC_SUPABASE_URL as string);
     const key = ((supabase as any).supabaseKey as string) || (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
@@ -30,7 +26,7 @@ const verifyPassword = async (email: string, password: string): Promise<boolean>
             persistSession: false,
             autoRefreshToken: false,
             detectSessionInUrl: false,
-            storageKey: "delete-account-verify", // แยกจาก client หลัก
+            storageKey: "delete-account-verify", 
         },
     });
 

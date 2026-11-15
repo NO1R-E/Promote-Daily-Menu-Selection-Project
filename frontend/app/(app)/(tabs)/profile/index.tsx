@@ -20,11 +20,10 @@ import { useAuth } from "@/src/contexts/AuthContext";
 
 const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/bottts/png?seed=Felix";
 
-// [ORANGE] พาเลตสีส้มของแอป (ใช้เฉพาะจุดเด่น ไม่ใช่ทั้งหน้า)
-const ORANGE = "#F28E2B"; // สีหลัก
-const ORANGE_DARK = "#C96A0A"; // ใช้กับป้ายกล้อง
-const ORANGE_SOFT = "#FFEBD6"; // พื้นวงกลมไอคอนเมนู
-const ORANGE_BORDER = "#F6C48F"; // เส้นขอบ/ลูกศรแบบอ่อน
+const ORANGE = "#F28E2B"; 
+const ORANGE_DARK = "#C96A0A"; 
+const ORANGE_SOFT = "#FFEBD6"; 
+const ORANGE_BORDER = "#F6C48F"; 
 
 export default function ProfileScreen() {
   const { user, profile, loading, refreshUserData } = useAuth();

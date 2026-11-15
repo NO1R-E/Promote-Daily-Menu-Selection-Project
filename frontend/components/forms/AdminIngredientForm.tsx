@@ -1,8 +1,4 @@
 // src/components/forms/AdminIngredientForm.tsx
-// ฟอร์มฝั่งแอดมิน เพิ่มวัตถุดิบหลัก (ตัวบางๆ ครอบ IngredientForm ที่ใช้ร่วมกับฝั่งผู้ใช้)
-// บันทึกลง ingredients + ingredient_nutrients + ingredient_tags ผ่านฟังก์ชัน create_ingredient
-// ฟังก์ชันตรวจบทบาทแอดมินเองฝั่งฐานข้อมูล แล้วตั้ง status = 'verified' (source 'admin') ให้
-// วางในหน้าที่มี ScrollView อยู่แล้วได้เลย (ฟอร์มไม่มี ScrollView ในตัว)
 
 import IngredientForm from "./ingredientForm";
 

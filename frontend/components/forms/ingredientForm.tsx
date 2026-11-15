@@ -448,7 +448,10 @@ export default function IngredientForm({
           setNoneGroups((prev) => prev.filter((g) => g !== DIET_GROUP_ID));
         }
       }
-      if (result.name && !nameEn.trim()) setNameEn(result.name);
+      // fill both names, but never overwrite what the user already typed
+      const en = result.name_en ?? result.name ?? "";
+      if (en && !nameEn.trim()) setNameEn(en);
+      if (result.name_th && !nameTh.trim()) setNameTh(result.name_th);
       // countable ingredients (egg, orange...) come with their unit weights; the user can edit them
       setUnitRows(
         (result.units ?? []).slice(0, MAX_UNITS).map((u, i) => ({

@@ -1,6 +1,3 @@
-// Ingredient info page: names, status badge, nutrients per 100 g, tags and how much it is used.
-// Everyone can open it (verified or not). Admins also get Edit / Edit & verify.
-
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
